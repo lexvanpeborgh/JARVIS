@@ -1,0 +1,113 @@
+a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
+          }
+        } else if (a.type === 'add_task' && a.title) {
+          next.tasks = [...next.tasks, { id:uid(), title:a.title, done:false, createdAt:new Date().toISOString() }];
+        } else if (a.type === 'add_event' && a.title && a.when) {
+          next.events = [...next.events, { id:uid(), title:a.title, when:a.when, createdAt:new Date().toISOString() }];
+        } else if (a.type === 'save_note' && a.text) {
+          const stamp = new Date().toLocaleString('nl-BE');
+          next.notes = `${next.notes ? next.notes + '\n' : ''}[${stamp}] ${a.text}`;
+        } else if (a.type === 'open_url' && /^https?:\/\//i.test(a.url || '')) {
+          setTimeout(() => window.open(a.url, '_blank', 'noopener,noreferrer'), 0);
+        }
+      }
+      return next;
+    });
+    flash('Lokale JARVIS-actie uitgevoerd');
+  }, [flash]);
+
+  const send = useCallback(async () => {
+    if (!state || busy) return;
+    const text = draft.trim();
+    if (!text && !attachment) return;
+    const userText = text || `Analyseer ${attachment?.filename || 'dit bestand'}.`;
+    const userMsg = { id:uid(), role:'user', text:userText, sessionId:state.sessionId, createdAt:new Date().toISOString(), attachmentName:attachment?.filename || null };
+    const snapshot = { ...state, messages:[...state.messages, userMsg] };
+    setState(snapshot); setDraft(''); setTab('chat'); setBusy(true);
+    try {
+      const recent = snapshot.messages.filter(m => m.sessionId === snapshot.sessionId).slice(-14).map(m => ({ role:m.role, text:m.text }));
+      const mem = relevantMemories(snapshot.memories, userText).map(m => m.text);
+      const old = historyMatches(snapshot.messages, userText, snapshot.sessionId).map(m => ({ role:m.role, text:m.text }));
+      const response = await fetch('/api/chat', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({
+          message:userText,
+          userName:snapshot.userName,
+          localTime:new Date().toISOString(),
+          memoryContext:mem,
+          historyMatches:old,
+          recentMessages:recent,
+          attachment:attachment ? { filename:attachment.filename, mimeType:attachment.mimeType, base64:attachment.base64 } : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const assistant = { id:uid(), role:'assistant', text:data.text || 'Klaar.', sessionId:snapshot.sessionId, createdAt:new Date().toISOString(), sources:data.sources || [] };
+      setState(prev => ({ ...prev, messages:[...prev.messages, assistant] }));
+      applyActions(data.actions);
+      setAttachment(null);
+    } catch (error) {
+      const raw = String(error?.message || error || 'Onbekende fout');
+      const gatewayBlocked = /valid credit card|unlock your free credits/i.test(raw);
+      const text = gatewayBlocked
+        ? 'De JARVIS-interface werkt, maar Vercel AI Gateway is voor dit account nog niet geactiveerd. Activeer de gratis Gateway-credits in Vercel; daarna werken AI-chat, web search, afbeeldingen en live voice zonder nieuwe installatie.'
+        : `Ik kon dit niet uitvoeren: ${raw}`;
+      setState(prev => ({ ...prev, messages:[...prev.messages, { id:uid(), role:'assistant', text, sessionId:prev.sessionId, createdAt:new Date().toISOString(), error:true }] }));
+    } finally { setBusy(false); }
+  }, [state, busy, draft, attachment, applyActions]);
+
+  const generateImage = useCallback(async () => {
+    const prompt = draft.trim();
+    if (!prompt || busy) { flash('Typ eerst wat je wilt laten maken'); return; }
+    setBusy(true); setTab('chat'); setDraft('');
+    const id = uid();
+    setState(prev => ({ ...prev, messages:[...prev.messages,
+      { id:uid(), role:'user', text:`Maak een afbeelding: ${prompt}`, sessionId:prev.sessionId, createdAt:new Date().toISOString() },
+      { id, role:'assistant', text:'Afbeelding wordt gegenereerd…', sessionId:prev.sessionId, createdAt:new Date().toISOString(), imagePending:true }
+    ] }));
+    try {
+      const r = await fetch('/api/image', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({prompt}) });
+      const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setGenerated(g => ({ ...g, [id]:`data:${data.mediaType || 'image/png'};base64,${data.base64}` }));
+      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:'Afbeelding gegenereerd.', imagePending:false, generatedImage:true} : m) }));
+    } catch (e) {
+      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:`Afbeelding mislukt: ${e.message}`, imagePending:false} : m) }));
+    } finally { setBusy(false); }
+  }, [draft, busy, flash]);
+
+  const chooseFile = async (file) => {
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { flash('Maximaal 15 MB per bestand'); return; }
+    try {
+      const base64 = await readFile(file);
+      setAttachment({ filename:file.name, mimeType:file.type || 'application/octet-stream', base64 });
+      flash(`${file.name} toegevoegd`);
+    } catch { flash('Bestand kon niet worden gelezen'); }
+  };
+
+  const startVoice = async () => {
+    setVoiceError(''); setVoiceOpen(true);
+    try {
+      await realtime.connect();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      micStreamRef.current = stream;
+      await realtime.startAudioCapture(stream);
+    } catch (error) {
+      setVoiceError(error?.message || 'Microfoon kon niet starten');
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+    }
+  };
+
+  const stopVoice = async () => {
+    try { await realtime.stopAudioCapture?.(); } catch {}
+    try { await realtime.disconnect?.(); } catch {}
+    micStreamRef.current?.getTracks().forEach(t => t.stop()); micStreamRef.current = null;
+    const transcript = (realtime.messages || []).map(m => ({ id:m.id || uid(), role:m.role || 'assistant', text:messageText(m) })).filter(m => m.text);
+    if (transcript.length) {
+      setState(prev => ({ ...prev, voiceArchive:[...prev.voiceArchive, { id:uid(), createdAt:new Date().toISOString(), messages:transcript }] }));
+    }
+    setVoiceOpen(false);
+  };
+
+  if (!state) return <div className="boot"><div classN
