@@ -1,23 +1,25 @@
-a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
-          }
-        } else if (a.type === 'add_task' && a.title) {
-          next.tasks = [...next.tasks, { id:uid(), title:a.title, done:false, createdAt:new Date().toISOString() }];
-        } else if (a.type === 'add_event' && a.title && a.when) {
-          next.events = [...next.events, { id:uid(), title:a.title, when:a.when, createdAt:new Date().toISOString() }];
-        } else if (a.type === 'save_note' && a.text) {
-          const stamp = new Date().toLocaleString('nl-BE');
-          next.notes = `${next.notes ? next.notes + '\n' : ''}[${stamp}] ${a.text}`;
-        } else if (a.type === 'open_url' && /^https?:\/\//i.test(a.url || '')) {
-          setTimeout(() => window.open(a.url, '_blank', 'noopener,noreferrer'), 0);
-        }
-      }
-      return next;
-    });
-    flash('Lokale JARVIS-actie uitgevoerd');
-  }, [flash]);
+
+  const testGeminiKey = useCallback(async () => {
+    const key = geminiKey.trim();
+    if (!key) { setKeyTest('Voeg eerst een key toe'); return; }
+    setKeyTest('Testen…');
+    try {
+      const response = await fetch('/api/chat', {
+        method:'POST',
+        headers:{ 'content-type':'application/json', 'x-gemini-key':key },
+        body:JSON.stringify({ message:'Antwoord alleen met OK.', recentMessages:[], memoryContext:[], historyMatches:[], localTime:new Date().toISOString() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setKeyTest('✓ Gratis Gemini-key werkt');
+    } catch (error) {
+      setKeyTest(`✕ ${error?.message || 'Key werkt niet'}`);
+    }
+  }, [geminiKey]);
 
   const send = useCallback(async () => {
     if (!state || busy) return;
+    if (!geminiKey.trim()) { setTab('more'); setMorePane('settings'); flash('Voeg eerst je gratis Gemini API-key toe'); return; }
     const text = draft.trim();
     if (!text && !attachment) return;
     const userText = text || `Analyseer ${attachment?.filename || 'dit bestand'}.`;
@@ -25,11 +27,11 @@ a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
     const snapshot = { ...state, messages:[...state.messages, userMsg] };
     setState(snapshot); setDraft(''); setTab('chat'); setBusy(true);
     try {
-      const recent = snapshot.messages.filter(m => m.sessionId === snapshot.sessionId).slice(-14).map(m => ({ role:m.role, text:m.text }));
+      const recent = snapshot.messages.filter(m => m.sessionId === snapshot.sessionId).slice(-12).map(m => ({ role:m.role, text:m.text }));
       const mem = relevantMemories(snapshot.memories, userText).map(m => m.text);
       const old = historyMatches(snapshot.messages, userText, snapshot.sessionId).map(m => ({ role:m.role, text:m.text }));
       const response = await fetch('/api/chat', {
-        method:'POST', headers:{'content-type':'application/json'},
+        method:'POST', headers:{'content-type':'application/json','x-gemini-key':geminiKey.trim()},
         body:JSON.stringify({
           message:userText,
           userName:snapshot.userName,
@@ -48,32 +50,29 @@ a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
       setAttachment(null);
     } catch (error) {
       const raw = String(error?.message || error || 'Onbekende fout');
-      const gatewayBlocked = /valid credit card|unlock your free credits/i.test(raw);
-      const text = gatewayBlocked
-        ? 'De JARVIS-interface werkt, maar Vercel AI Gateway is voor dit account nog niet geactiveerd. Activeer de gratis Gateway-credits in Vercel; daarna werken AI-chat, web search, afbeeldingen en live voice zonder nieuwe installatie.'
-        : `Ik kon dit niet uitvoeren: ${raw}`;
-      setState(prev => ({ ...prev, messages:[...prev.messages, { id:uid(), role:'assistant', text, sessionId:prev.sessionId, createdAt:new Date().toISOString(), error:true }] }));
+      setState(prev => ({ ...prev, messages:[...prev.messages, { id:uid(), role:'assistant', text:`Ik kon dit niet uitvoeren: ${raw}`, sessionId:prev.sessionId, createdAt:new Date().toISOString(), error:true }] }));
     } finally { setBusy(false); }
-  }, [state, busy, draft, attachment, applyActions]);
+  }, [state, busy, draft, attachment, applyActions, geminiKey, flash]);
 
   const generateImage = useCallback(async () => {
+    if (!geminiKey.trim()) { setTab('more'); setMorePane('settings'); flash('Voeg eerst je gratis Gemini API-key toe'); return; }
     const prompt = draft.trim();
-    if (!prompt || busy) { flash('Typ eerst wat je wilt laten maken'); return; }
+    if (!prompt || busy) { flash('Typ eerst wat je wilt laten visualiseren'); return; }
     setBusy(true); setTab('chat'); setDraft('');
     const id = uid();
     setState(prev => ({ ...prev, messages:[...prev.messages,
-      { id:uid(), role:'user', text:`Maak een afbeelding: ${prompt}`, sessionId:prev.sessionId, createdAt:new Date().toISOString() },
-      { id, role:'assistant', text:'Afbeelding wordt gegenereerd…', sessionId:prev.sessionId, createdAt:new Date().toISOString(), imagePending:true }
+      { id:uid(), role:'user', text:`Maak een gratis visual: ${prompt}`, sessionId:prev.sessionId, createdAt:new Date().toISOString() },
+      { id, role:'assistant', text:'Gratis SVG-visual wordt gegenereerd…', sessionId:prev.sessionId, createdAt:new Date().toISOString(), imagePending:true }
     ] }));
     try {
-      const r = await fetch('/api/image', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({prompt}) });
+      const r = await fetch('/api/image', { method:'POST', headers:{'content-type':'application/json','x-gemini-key':geminiKey.trim()}, body:JSON.stringify({prompt}) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      setGenerated(g => ({ ...g, [id]:`data:${data.mediaType || 'image/png'};base64,${data.base64}` }));
-      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:'Afbeelding gegenereerd.', imagePending:false, generatedImage:true} : m) }));
+      setGenerated(g => ({ ...g, [id]:`data:${data.mediaType || 'image/svg+xml'};base64,${data.base64}` }));
+      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:'Gratis vectorvisual gegenereerd.', imagePending:false, generatedImage:true} : m) }));
     } catch (e) {
-      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:`Afbeelding mislukt: ${e.message}`, imagePending:false} : m) }));
+      setState(prev => ({ ...prev, messages:prev.messages.map(m => m.id === id ? {...m, text:`Visual mislukt: ${e.message}`, imagePending:false} : m) }));
     } finally { setBusy(false); }
-  }, [draft, busy, flash]);
+  }, [draft, busy, flash, geminiKey]);
 
   const chooseFile = async (file) => {
     if (!file) return;
@@ -85,29 +84,150 @@ a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
     } catch { flash('Bestand kon niet worden gelezen'); }
   };
 
+  const appendLive = useCallback((role, text) => {
+    const clean = String(text || '').trim();
+    if (!clean) return;
+    setLiveMessages(prev => {
+      const last = prev[prev.length - 1];
+      if (last?.role === role) return [...prev.slice(0,-1), { ...last, text:(last.text + ' ' + clean).trim() }];
+      return [...prev, { id:uid(), role, text:clean }];
+    });
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    playbackSourcesRef.current.forEach(source => { try { source.stop(); } catch {} });
+    playbackSourcesRef.current.clear();
+    playbackTimeRef.current = outputContextRef.current?.currentTime || 0;
+  }, []);
+
+  const playPcm = useCallback(async (base64) => {
+    if (!base64) return;
+    let ctx = outputContextRef.current;
+    if (!ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      ctx = new AudioCtx(); outputContextRef.current = ctx;
+    }
+    if (ctx.state === 'suspended') await ctx.resume();
+    const bytes = base64ToBytes(base64);
+    const samples = Math.floor(bytes.byteLength / 2);
+    if (!samples) return;
+    const audioBuffer = ctx.createBuffer(1, samples, 24000);
+    const channel = audioBuffer.getChannelData(0);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let i=0;i<samples;i++) channel[i] = view.getInt16(i*2, true) / 32768;
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer; source.connect(ctx.destination);
+    const start = Math.max(ctx.currentTime + 0.025, playbackTimeRef.current || 0);
+    source.start(start); playbackTimeRef.current = start + audioBuffer.duration;
+    playbackSourcesRef.current.add(source);
+    source.onended = () => playbackSourcesRef.current.delete(source);
+  }, []);
+
+  const sendLiveActionResult = useCallback((fc) => {
+    const args = fc?.args || {};
+    let action = null;
+    if (fc?.name === 'save_memory' && args.text) action = {type:'save_memory',text:args.text,category:args.category||'general'};
+    if (fc?.name === 'add_task' && args.title) action = {type:'add_task',title:args.title};
+    if (fc?.name === 'add_event' && args.title && args.when) action = {type:'add_event',title:args.title,when:args.when};
+    if (fc?.name === 'save_note' && args.text) action = {type:'save_note',text:args.text};
+    if (action) applyActions([action]);
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ toolResponse:{ functionResponses:[{ name:fc.name, id:fc.id, response:{ result: action ? {ok:true,saved:true} : {ok:false,error:'Invalid action'} } }] } }));
+    }
+  }, [applyActions]);
+
+  const startMicCapture = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    micStreamRef.current = stream;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx(); inputContextRef.current = ctx;
+    if (ctx.state === 'suspended') await ctx.resume();
+    const source = ctx.createMediaStreamSource(stream); inputSourceRef.current = source;
+    const processor = ctx.createScriptProcessor(4096, 1, 1); processorRef.current = processor;
+    const gain = ctx.createGain(); gain.gain.value = 0; silentGainRef.current = gain;
+    processor.onaudioprocess = event => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const buffer = new ArrayBuffer(input.length * 2);
+      const view = new DataView(buffer);
+      for (let i=0;i<input.length;i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        view.setInt16(i*2, s < 0 ? s*0x8000 : s*0x7fff, true);
+      }
+      ws.send(JSON.stringify({ realtimeInput:{ audio:{ data:bufferToBase64(buffer), mimeType:`audio/pcm;rate=${ctx.sampleRate}` } } }));
+    };
+    source.connect(processor); processor.connect(gain); gain.connect(ctx.destination);
+    setLiveStatus('listening');
+  }, []);
+
+  const cleanupVoice = useCallback(async () => {
+    try { processorRef.current && (processorRef.current.onaudioprocess = null); } catch {}
+    try { processorRef.current?.disconnect(); } catch {}
+    try { inputSourceRef.current?.disconnect(); } catch {}
+    try { silentGainRef.current?.disconnect(); } catch {}
+    try { await inputContextRef.current?.close(); } catch {}
+    micStreamRef.current?.getTracks().forEach(t => t.stop());
+    processorRef.current = null; inputSourceRef.current = null; silentGainRef.current = null; inputContextRef.current = null; micStreamRef.current = null;
+    stopPlayback();
+    try { await outputContextRef.current?.close(); } catch {}
+    outputContextRef.current = null; playbackTimeRef.current = 0;
+  }, [stopPlayback]);
+
   const startVoice = async () => {
-    setVoiceError(''); setVoiceOpen(true);
+    if (!geminiKey.trim()) { setTab('more'); setMorePane('settings'); flash('Voeg eerst je gratis Gemini API-key toe'); return; }
+    setVoiceError(''); setLiveMessages([]); setLiveStatus('connecting'); setVoiceOpen(true);
     try {
-      await realtime.connect();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
-      micStreamRef.current = stream;
-      await realtime.startAudioCapture(stream);
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      outputContextRef.current = new AudioCtx();
+      await outputContextRef.current.resume();
+      const tokenResponse = await fetch('/api/realtime/token', { method:'POST', headers:{'x-gemini-key':geminiKey.trim()} });
+      const tokenData = await tokenResponse.json();
+      if (!tokenResponse.ok) throw new Error(tokenData.error || `HTTP ${tokenResponse.status}`);
+      const ws = new WebSocket(`${tokenData.url}?access_token=${encodeURIComponent(tokenData.token)}`);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setLiveStatus('connected');
+        ws.send(JSON.stringify({ setup:{
+          model:`models/${LIVE_MODEL}`,
+          generationConfig:{ responseModalities:['AUDIO'], speechConfig:{ voiceConfig:{ prebuiltVoiceConfig:{ voiceName:'Gacrux' } } } },
+          systemInstruction:{ parts:[{ text:`You are JARVIS, a private personal AI assistant. Speak Dutch by default unless the user changes language. Speak naturally, calmly and intelligently. Voice manner: mature, composed, refined, measured and subtly British/cinematic, but never imitate Paul Bettany or any real person. Keep spoken answers concise but useful. You can discuss normal topics, explain, plan, research current public information with Google Search, and use local tools for memories, tasks, agenda and notes. Current device time: ${new Date().toISOString()}.` }] },
+          inputAudioTranscription:{}, outputAudioTranscription:{}, sessionResumption:{},
+          tools:[{googleSearch:{}},{functionDeclarations:LIVE_FUNCTIONS}],
+        } }));
+      };
+      ws.onmessage = async event => {
+        try {
+          const raw = typeof event.data === 'string' ? event.data : await event.data.text();
+          const msg = JSON.parse(raw);
+          if (msg.setupComplete) { await startMicCapture(); return; }
+          const sc = msg.serverContent;
+          if (sc?.interrupted) stopPlayback();
+          if (sc?.inputTranscription?.text) appendLive('user', sc.inputTranscription.text);
+          if (sc?.outputTranscription?.text) appendLive('assistant', sc.outputTranscription.text);
+          for (const part of sc?.modelTurn?.parts || []) {
+            const inline = part.inlineData || part.inline_data;
+            if (inline?.data) await playPcm(inline.data);
+          }
+          for (const fc of msg.toolCall?.functionCalls || []) sendLiveActionResult(fc);
+        } catch (error) { console.error('live-message', error); }
+      };
+      ws.onerror = () => setVoiceError('Gemini Live-verbinding kreeg een fout.');
+      ws.onclose = () => setLiveStatus('closed');
     } catch (error) {
-      setVoiceError(error?.message || 'Microfoon kon niet starten');
-      micStreamRef.current?.getTracks().forEach(t => t.stop());
-      micStreamRef.current = null;
+      setVoiceError(error?.message || 'Live voice kon niet starten'); setLiveStatus('error');
+      await cleanupVoice();
+      try { wsRef.current?.close(); } catch {} wsRef.current = null;
     }
   };
 
   const stopVoice = async () => {
-    try { await realtime.stopAudioCapture?.(); } catch {}
-    try { await realtime.disconnect?.(); } catch {}
-    micStreamRef.current?.getTracks().forEach(t => t.stop()); micStreamRef.current = null;
-    const transcript = (realtime.messages || []).map(m => ({ id:m.id || uid(), role:m.role || 'assistant', text:messageText(m) })).filter(m => m.text);
-    if (transcript.length) {
-      setState(prev => ({ ...prev, voiceArchive:[...prev.voiceArchive, { id:uid(), createdAt:new Date().toISOString(), messages:transcript }] }));
-    }
-    setVoiceOpen(false);
+    const archive = [...liveMessages];
+    try { wsRef.current?.close(); } catch {} wsRef.current = null;
+    await cleanupVoice();
+    if (archive.length) setState(prev => ({ ...prev, voiceArchive:[...prev.voiceArchive, { id:uid(), createdAt:new Date().toISOString(), messages:archive }] }));
+    setLiveStatus('idle'); setVoiceOpen(false);
   };
 
-  if (!state) return <div className="boot"><div classN
+  if (!state) return <div className="boot"><div className="bootCore">J</div><p>JARVIS INITIALIZING</p></div>;
