@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const MODEL = 'gemini-2.5-flash-lite';
+const MODEL = 'gemini-3.5-flash-lite';
 
 function cleanSvg(raw) {
   let text = String(raw || '').replace(/```(?:svg|xml)?/gi, '').replace(/```/g, '').trim();
@@ -29,7 +29,7 @@ export async function POST(request) {
       body:JSON.stringify({
         systemInstruction:{ parts:[{ text:'Create a polished standalone SVG visual. Return ONLY valid SVG markup, no markdown. Use viewBox 0 0 1024 1024. No external images, fonts, scripts, JavaScript, event handlers or remote resources. Make it visually rich but readable on a phone. If the request is photographic, reinterpret it as a premium cinematic vector illustration.' }] },
         contents:[{ role:'user', parts:[{ text:String(prompt).slice(0,4000) }] }],
-        generationConfig:{ temperature:0.75, maxOutputTokens:8192 },
+        generationConfig:{ maxOutputTokens:8192 },
       }),
     });
     const text = await response.text();
