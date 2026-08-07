@@ -1,0 +1,143 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { experimental_useRealtime as useRealtime } from '@ai-sdk/react';
+import { gateway } from '@ai-sdk/gateway';
+
+const STORAGE_KEY = 'jarvis-v2-state';
+const emptyState = () => ({
+  version: 2,
+  userName: '',
+  sessionId: crypto.randomUUID(),
+  messages: [],
+  memories: [],
+  tasks: [],
+  events: [],
+  notes: '',
+  voiceArchive: [],
+});
+
+function uid() { return crypto.randomUUID(); }
+function safeState(raw) {
+  const base = emptyState();
+  if (!raw || typeof raw !== 'object') return base;
+  return {
+    ...base,
+    ...raw,
+    messages: Array.isArray(raw.messages) ? raw.messages : [],
+    memories: Array.isArray(raw.memories) ? raw.memories : [],
+    tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
+    events: Array.isArray(raw.events) ? raw.events : [],
+    voiceArchive: Array.isArray(raw.voiceArchive) ? raw.voiceArchive : [],
+  };
+}
+function words(text) {
+  return new Set(String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z0-9à-ÿ]{3,}/gi) || []);
+}
+function relevantMemories(memories, query, limit = 10) {
+  const q = words(query);
+  return memories.map(m => {
+    const w = words(m.text); let score = 0;
+    q.forEach(x => { if (w.has(x)) score += 3; });
+    if (['preference','goal','profile','routine','project'].includes(m.category)) score += 1;
+    return { m, score };
+  }).sort((a,b) => b.score - a.score || String(b.m.createdAt).localeCompare(String(a.m.createdAt)))
+    .slice(0, limit).map(x => x.m);
+}
+function historyMatches(messages, query, currentSession, limit = 8) {
+  const q = words(query);
+  return messages.filter(m => m.sessionId !== currentSession).map(m => {
+    const w = words(m.text); let score = 0;
+    q.forEach(x => { if (w.has(x)) score += 1; });
+    return { m, score };
+  }).filter(x => x.score > 0).sort((a,b) => b.score - a.score).slice(0, limit).map(x => x.m);
+}
+function formatDate(value) {
+  try { return new Intl.DateTimeFormat('nl-BE', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }).format(new Date(value)); }
+  catch { return String(value); }
+}
+function messageText(msg) {
+  if (!msg) return '';
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.parts)) return msg.parts.filter(p => p?.type === 'text' && p.text).map(p => p.text).join(' ');
+  return '';
+}
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const result = String(r.result || '');
+      resolve(result.includes(',') ? result.split(',')[1] : result);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+export default function JarvisApp() {
+  const [state, setState] = useState(null);
+  const [tab, setTab] = useState('home');
+  const [morePane, setMorePane] = useState('agenda');
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [attachment, setAttachment] = useState(null);
+  const [generated, setGenerated] = useState({});
+  const [toast, setToast] = useState('');
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [health, setHealth] = useState(null);
+  const fileRef = useRef(null);
+  const micStreamRef = useRef(null);
+
+  const realtimeModel = useMemo(() => gateway.experimental_realtime('openai/gpt-realtime-2.1'), []);
+
+  const realtime = useRealtime({
+    model: realtimeModel,
+    api: { token: '/api/realtime/token' },
+    sessionConfig: {
+      instructions: `You are JARVIS, a private personal AI assistant. Speak Dutch by default unless the user changes language. Be concise in voice but fully answer the question. You can discuss essentially any normal topic: planning, study, coding, explanations, research, current affairs, ideas and personal organization. Your vocal manner should be calm, low-key, refined, measured, subtly British/cinematic and technologically polished. Never claim to be or imitate Paul Bettany or any other real person. Do not claim to literally be the fictional Iron Man character. When the user asks you to remember something, add a task, schedule an event, or save a note, use the matching tool. Confirm only after the tool result succeeds. Keep spoken answers natural and relatively concise. Speak in a calm, controlled, refined British-influenced manner without imitating any real person.`,
+      voice: 'cedar',
+      turnDetection: { type: 'server-vad' },
+      inputAudioTranscription: {},
+    },
+    onToolCall: async ({ toolCall }) => {
+      const args = toolCall?.args || toolCall?.input || {};
+      const name = toolCall?.toolName;
+      let action = null;
+      if (name === 'save_memory' && args.text) action = { type:'save_memory', text:args.text, category:args.category || 'general' };
+      if (name === 'add_task' && args.title) action = { type:'add_task', title:args.title };
+      if (name === 'add_event' && args.title && args.when) action = { type:'add_event', title:args.title, when:args.when };
+      if (name === 'save_note' && args.text) action = { type:'save_note', text:args.text };
+      if (!action) return { ok:false, error:'Unknown or incomplete local action' };
+      applyActions([action]);
+      return { ok:true, saved:true, action:name };
+    },
+    onError: (error) => setVoiceError(error?.message || 'Realtime voice error'),
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      setState(safeState(raw ? JSON.parse(raw) : null));
+    } catch { setState(emptyState()); }
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    fetch('/api/health').then(r => r.json()).then(setHealth).catch(() => setHealth({ ok:false }));
+  }, []);
+
+  useEffect(() => {
+    if (!state) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  }, [state]);
+
+  const flash = useCallback((text) => {
+    setToast(text); window.setTimeout(() => setToast(''), 2200);
+  }, []);
+
+  const applyActions = useCallback((actions) => {
+    if (!Array.isArray(actions) || !actions.length) return;
+    setState(prev => {
+      let next = { ...prev };
+      for (const a of actions) {
+        if (a.type === 'save_memory' && a.text) {
+          if (!next.memories.some(m => m.text.toLowerCase() === a.text.toLowerCase())) {
+            next.memories = [...next.memories, { id:uid(), text:
