@@ -1,12 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { experimental_useRealtime as useRealtime } from '@ai-sdk/react';
-import { gateway } from '@ai-sdk/gateway';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'jarvis-v2-state';
+const GEMINI_KEY_STORAGE = 'jarvis-gemini-free-key';
+const LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+
+const LIVE_FUNCTIONS = [
+  { name:'save_memory', description:'Save a durable user-provided preference, goal, profile fact, routine, project fact, or something explicitly requested to remember.', parameters:{ type:'object', properties:{ text:{type:'string'}, category:{type:'string', enum:['preference','goal','profile','routine','project','general']} }, required:['text','category'] } },
+  { name:'add_task', description:'Add a concrete task to the local JARVIS task list.', parameters:{ type:'object', properties:{ title:{type:'string'} }, required:['title'] } },
+  { name:'add_event', description:'Add an event or appointment to the local agenda. Use ISO 8601 date-time.', parameters:{ type:'object', properties:{ title:{type:'string'}, when:{type:'string'} }, required:['title','when'] } },
+  { name:'save_note', description:'Append useful text to local JARVIS notes.', parameters:{ type:'object', properties:{ text:{type:'string'} }, required:['text'] } },
+];
+
 const emptyState = () => ({
-  version: 2,
+  version: 3,
   userName: '',
   sessionId: crypto.randomUUID(),
   messages: [],
@@ -24,6 +32,7 @@ function safeState(raw) {
   return {
     ...base,
     ...raw,
+    version:3,
     messages: Array.isArray(raw.messages) ? raw.messages : [],
     memories: Array.isArray(raw.memories) ? raw.memories : [],
     tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
@@ -41,8 +50,7 @@ function relevantMemories(memories, query, limit = 10) {
     q.forEach(x => { if (w.has(x)) score += 3; });
     if (['preference','goal','profile','routine','project'].includes(m.category)) score += 1;
     return { m, score };
-  }).sort((a,b) => b.score - a.score || String(b.m.createdAt).localeCompare(String(a.m.createdAt)))
-    .slice(0, limit).map(x => x.m);
+  }).sort((a,b) => b.score - a.score || String(b.m.createdAt).localeCompare(String(a.m.createdAt))).slice(0, limit).map(x => x.m);
 }
 function historyMatches(messages, query, currentSession, limit = 8) {
   const q = words(query);
@@ -56,22 +64,23 @@ function formatDate(value) {
   try { return new Intl.DateTimeFormat('nl-BE', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }).format(new Date(value)); }
   catch { return String(value); }
 }
-function messageText(msg) {
-  if (!msg) return '';
-  if (typeof msg.content === 'string') return msg.content;
-  if (Array.isArray(msg.parts)) return msg.parts.filter(p => p?.type === 'text' && p.text).map(p => p.text).join(' ');
-  return '';
-}
 function readFile(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => {
-      const result = String(r.result || '');
-      resolve(result.includes(',') ? result.split(',')[1] : result);
-    };
+    r.onload = () => { const result = String(r.result || ''); resolve(result.includes(',') ? result.split(',')[1] : result); };
     r.onerror = () => reject(r.error);
     r.readAsDataURL(file);
   });
+}
+function bufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer); let binary = ''; const size = 0x8000;
+  for (let i=0;i<bytes.length;i+=size) binary += String.fromCharCode(...bytes.subarray(i, i+size));
+  return btoa(binary);
+}
+function base64ToBytes(value) {
+  const bin = atob(value); const out = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 export default function JarvisApp() {
@@ -85,40 +94,27 @@ export default function JarvisApp() {
   const [toast, setToast] = useState('');
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceError, setVoiceError] = useState('');
+  const [liveStatus, setLiveStatus] = useState('idle');
+  const [liveMessages, setLiveMessages] = useState([]);
   const [health, setHealth] = useState(null);
+  const [geminiKey, setGeminiKey] = useState('');
+  const [keyTest, setKeyTest] = useState('');
   const fileRef = useRef(null);
+  const wsRef = useRef(null);
   const micStreamRef = useRef(null);
-
-  const realtimeModel = useMemo(() => gateway.experimental_realtime('openai/gpt-realtime-2.1'), []);
-
-  const realtime = useRealtime({
-    model: realtimeModel,
-    api: { token: '/api/realtime/token' },
-    sessionConfig: {
-      instructions: `You are JARVIS, a private personal AI assistant. Speak Dutch by default unless the user changes language. Be concise in voice but fully answer the question. You can discuss essentially any normal topic: planning, study, coding, explanations, research, current affairs, ideas and personal organization. Your vocal manner should be calm, low-key, refined, measured, subtly British/cinematic and technologically polished. Never claim to be or imitate Paul Bettany or any other real person. Do not claim to literally be the fictional Iron Man character. When the user asks you to remember something, add a task, schedule an event, or save a note, use the matching tool. Confirm only after the tool result succeeds. Keep spoken answers natural and relatively concise. Speak in a calm, controlled, refined British-influenced manner without imitating any real person.`,
-      voice: 'cedar',
-      turnDetection: { type: 'server-vad' },
-      inputAudioTranscription: {},
-    },
-    onToolCall: async ({ toolCall }) => {
-      const args = toolCall?.args || toolCall?.input || {};
-      const name = toolCall?.toolName;
-      let action = null;
-      if (name === 'save_memory' && args.text) action = { type:'save_memory', text:args.text, category:args.category || 'general' };
-      if (name === 'add_task' && args.title) action = { type:'add_task', title:args.title };
-      if (name === 'add_event' && args.title && args.when) action = { type:'add_event', title:args.title, when:args.when };
-      if (name === 'save_note' && args.text) action = { type:'save_note', text:args.text };
-      if (!action) return { ok:false, error:'Unknown or incomplete local action' };
-      applyActions([action]);
-      return { ok:true, saved:true, action:name };
-    },
-    onError: (error) => setVoiceError(error?.message || 'Realtime voice error'),
-  });
+  const inputContextRef = useRef(null);
+  const processorRef = useRef(null);
+  const inputSourceRef = useRef(null);
+  const silentGainRef = useRef(null);
+  const outputContextRef = useRef(null);
+  const playbackTimeRef = useRef(0);
+  const playbackSourcesRef = useRef(new Set());
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       setState(safeState(raw ? JSON.parse(raw) : null));
+      setGeminiKey(localStorage.getItem(GEMINI_KEY_STORAGE) || '');
     } catch { setState(emptyState()); }
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     fetch('/api/health').then(r => r.json()).then(setHealth).catch(() => setHealth({ ok:false }));
@@ -128,6 +124,13 @@ export default function JarvisApp() {
     if (!state) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
   }, [state]);
+
+  useEffect(() => {
+    try {
+      if (geminiKey) localStorage.setItem(GEMINI_KEY_STORAGE, geminiKey);
+      else localStorage.removeItem(GEMINI_KEY_STORAGE);
+    } catch {}
+  }, [geminiKey]);
 
   const flash = useCallback((text) => {
     setToast(text); window.setTimeout(() => setToast(''), 2200);
@@ -139,5 +142,19 @@ export default function JarvisApp() {
       let next = { ...prev };
       for (const a of actions) {
         if (a.type === 'save_memory' && a.text) {
-          if (!next.memories.some(m => m.text.toLowerCase() === a.text.toLowerCase())) {
-            next.memories = [...next.memories, { id:uid(), text:
+          if (!next.memories.some(m => m.text.toLowerCase() === a.text.toLowerCase())) next.memories = [...next.memories, { id:uid(), text:a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
+        } else if (a.type === 'add_task' && a.title) {
+          next.tasks = [...next.tasks, { id:uid(), title:a.title, done:false, createdAt:new Date().toISOString() }];
+        } else if (a.type === 'add_event' && a.title && a.when) {
+          next.events = [...next.events, { id:uid(), title:a.title, when:a.when, createdAt:new Date().toISOString() }];
+        } else if (a.type === 'save_note' && a.text) {
+          const stamp = new Date().toLocaleString('nl-BE');
+          next.notes = `${next.notes ? next.notes + '\n' : ''}[${stamp}] ${a.text}`;
+        } else if (a.type === 'open_url' && /^https?:\/\//i.test(a.url || '')) {
+          setTimeout(() => window.open(a.url, '_blank', 'noopener,noreferrer'), 0);
+        }
+      }
+      return next;
+    });
+    flash('Lokale JARVIS-actie uitgevoerd');
+  }, [flash]);
