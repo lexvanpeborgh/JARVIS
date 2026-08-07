@@ -1,127 +1,190 @@
-import { ToolLoopAgent, stepCountIs, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
-
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const safeUrl = (value) => {
+const MODEL = 'gemini-2.5-flash-lite';
+const API = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+const functionDeclarations = [
+  {
+    name: 'save_memory',
+    description: 'Save a durable user-provided preference, goal, profile fact, routine, project fact, or something the user explicitly asks JARVIS to remember. Do not save fleeting details.',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The durable fact to remember.' },
+        category: { type: 'string', enum: ['preference','goal','profile','routine','project','general'] },
+      },
+      required: ['text','category'],
+    },
+  },
+  {
+    name: 'add_task',
+    description: 'Add a concrete task to the user local JARVIS task list.',
+    parameters: { type:'object', properties:{ title:{type:'string'} }, required:['title'] },
+  },
+  {
+    name: 'add_event',
+    description: 'Add an event or appointment to the local JARVIS agenda. Use ISO 8601 date-time with timezone when possible.',
+    parameters: { type:'object', properties:{ title:{type:'string'}, when:{type:'string'} }, required:['title','when'] },
+  },
+  {
+    name: 'save_note',
+    description: 'Append useful text to the user local JARVIS notes.',
+    parameters: { type:'object', properties:{ text:{type:'string'} }, required:['text'] },
+  },
+  {
+    name: 'open_url',
+    description: 'Open a public http or https URL on the user device only when explicitly requested.',
+    parameters: { type:'object', properties:{ url:{type:'string'} }, required:['url'] },
+  },
+];
+
+function getKey(request) {
+  return String(request.headers.get('x-gemini-key') || '').trim();
+}
+
+function safeUrl(value) {
   try {
     const u = new URL(value);
-    return ['http:', 'https:'].includes(u.protocol) ? u.toString() : null;
+    return ['http:','https:'].includes(u.protocol) ? u.toString() : null;
   } catch { return null; }
-};
+}
+
+function isSearchRequest(text) {
+  return /\b(zoek|search|web|internet|online|actueel|recent|laatste|latest|vandaag|today|nieuws|news|prijs|prijzen|price|voorraad|stock|weer|weather|wanneer|when|openingstijden|hours|score|uitslag|resultaat|current|momenteel|nu)\b/i.test(text);
+}
+
+function isLocalActionRequest(text) {
+  return /\b(onthoud|remember|taak|task|todo|to-do|agenda|afspraak|event|note|notitie|bewaar|save|open (?:deze|dit|the) (?:link|url)|voeg .* toe|zet .* in)\b/i.test(text);
+}
+
+async function callGemini(key, payload) {
+  const response = await fetch(API, {
+    method: 'POST',
+    headers: { 'content-type':'application/json', 'x-goog-api-key':key },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { error:{ message:text } }; }
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || `Gemini HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function outputText(data) {
+  return (data?.candidates?.[0]?.content?.parts || []).filter(p => typeof p.text === 'string').map(p => p.text).join('').trim();
+}
+
+function sourcesFrom(data) {
+  const chunks = data?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const seen = new Set();
+  const sources = [];
+  for (const chunk of chunks) {
+    const web = chunk?.web;
+    if (!web?.uri || seen.has(web.uri)) continue;
+    seen.add(web.uri);
+    sources.push({ url:web.uri, title:web.title || web.uri });
+  }
+  return sources.slice(0, 8);
+}
+
+function actionFrom(call) {
+  const a = call?.args || {};
+  if (call?.name === 'save_memory' && a.text) return { type:'save_memory', text:String(a.text), category:a.category || 'general' };
+  if (call?.name === 'add_task' && a.title) return { type:'add_task', title:String(a.title) };
+  if (call?.name === 'add_event' && a.title && a.when) return { type:'add_event', title:String(a.title), when:String(a.when) };
+  if (call?.name === 'save_note' && a.text) return { type:'save_note', text:String(a.text) };
+  if (call?.name === 'open_url' && a.url) {
+    const url = safeUrl(a.url);
+    if (url) return { type:'open_url', url };
+  }
+  return null;
+}
 
 export async function POST(request) {
+  const key = getKey(request);
+  if (!key) return Response.json({ error:'Voeg eerst je gratis Gemini API-key toe in JARVIS Settings.' }, { status:401 });
+
   const actions = [];
   try {
     const body = await request.json();
     const message = String(body.message || '').trim();
-    if (!message && !body.attachment) {
-      return Response.json({ error: 'Message is required' }, { status: 400 });
-    }
+    if (!message && !body.attachment) return Response.json({ error:'Message is required' }, { status:400 });
 
-    const localTools = {
-      web_search: openai.tools.webSearch({}),
-      save_memory: tool({
-        description: 'Save a durable user-provided preference, goal, profile fact, routine, project fact, or something the user explicitly asks to remember. Do not save fleeting details. Avoid sensitive personal data unless the user explicitly asks to save it.',
-        inputSchema: z.object({
-          text: z.string().min(1).max(1000),
-          category: z.enum(['preference','goal','profile','routine','project','general']),
-        }),
-        execute: async ({ text, category }) => {
-          const action = { type: 'save_memory', text, category };
-          actions.push(action);
-          return { ok: true, action };
-        },
-      }),
-      add_task: tool({
-        description: 'Add a concrete task to the user’s JARVIS task list.',
-        inputSchema: z.object({ title: z.string().min(1).max(500) }),
-        execute: async ({ title }) => {
-          const action = { type: 'add_task', title };
-          actions.push(action);
-          return { ok: true, action };
-        },
-      }),
-      add_event: tool({
-        description: 'Add an event or appointment to the local JARVIS agenda. Use ISO 8601 date-time with timezone when known.',
-        inputSchema: z.object({
-          title: z.string().min(1).max(500),
-          when: z.string().min(1).max(100),
-        }),
-        execute: async ({ title, when }) => {
-          const action = { type: 'add_event', title, when };
-          actions.push(action);
-          return { ok: true, action };
-        },
-      }),
-      save_note: tool({
-        description: 'Append useful text to the user’s local JARVIS notes.',
-        inputSchema: z.object({ text: z.string().min(1).max(4000) }),
-        execute: async ({ text }) => {
-          const action = { type: 'save_note', text };
-          actions.push(action);
-          return { ok: true, action };
-        },
-      }),
-      open_url: tool({
-        description: 'Open a public http/https webpage on the user device, only when the user explicitly asked to open it.',
-        inputSchema: z.object({ url: z.string().min(1).max(2000) }),
-        execute: async ({ url }) => {
-          const clean = safeUrl(url);
-          if (!clean) return { ok: false, error: 'Unsafe URL' };
-          const action = { type: 'open_url', url: clean };
-          actions.push(action);
-          return { ok: true, action };
-        },
-      }),
-    };
-
-    const memoryContext = Array.isArray(body.memoryContext) ? body.memoryContext.slice(0, 12) : [];
-    const historyMatches = Array.isArray(body.historyMatches) ? body.historyMatches.slice(0, 10) : [];
+    const memories = Array.isArray(body.memoryContext) ? body.memoryContext.slice(0,12) : [];
+    const old = Array.isArray(body.historyMatches) ? body.historyMatches.slice(0,8) : [];
+    const recent = Array.isArray(body.recentMessages) ? body.recentMessages.slice(-12) : [];
     const localTime = body.localTime || new Date().toISOString();
     const userName = String(body.userName || '').trim();
 
-    const agent = new ToolLoopAgent({
-      model: 'openai/gpt-5.6-terra',
-      instructions: `You are JARVIS, a highly capable personal AI assistant inside a private mobile PWA.\n\nSTYLE\n- Default to Dutch (Belgian/NL) unless the user asks for another language.\n- Be direct, practical and intelligent. Do not pretend to be a fictional character or a real person.\n- You can handle ordinary conversation, explanations, planning, study help, coding, research, travel, current events, analysis and creative work.\n\nFRESH INFORMATION\n- Use web_search whenever current, recent, time-sensitive, niche or externally verifiable public information matters.\n- If you used web search, ground the answer in the retrieved information.\n\nLOCAL ACTIONS\n- Use save_memory/add_task/add_event/save_note/open_url when the user requests such actions.\n- Never claim a local action happened unless you actually called the corresponding tool.\n- For relative dates, use the device time supplied below.\n\nMEMORY\n- Durable Memory Core entries should be useful beyond the current turn.\n- Do not save temporary facts just because they were mentioned.\n\nDEVICE CONTEXT\nUser name: ${userName || '(not set)'}\nDevice time: ${localTime}\nRelevant Memory Core:\n${memoryContext.length ? memoryContext.map(x=>'- '+x).join('\n') : '(none)'}\nRelevant older chat matches:\n${historyMatches.length ? historyMatches.map(x=>'- '+(x.role || 'unknown')+': '+x.text).join('\n') : '(none)'}`,
-      tools: localTools,
-      stopWhen: stepCountIs(8),
+    const system = `You are JARVIS, a highly capable private personal AI assistant in a mobile web app.\nDefault to Dutch (Belgian/NL) unless the user changes language. Be practical, accurate, conversational and direct. You are not the fictional Iron Man character and you do not imitate any real person. Help with normal conversation, explanations, study, planning, coding, research, travel, analysis, creative work and personal organization.\n\nFor local organizer requests, use the supplied function tools and only confirm an action after the function was called. Save only durable memories. For dates use device time ${localTime}.\nUser name: ${userName || '(not set)'}\nRelevant Memory Core:\n${memories.length ? memories.map(x=>'- '+x).join('\n') : '(none)'}\nRelevant older chats:\n${old.length ? old.map(x=>'- '+(x.role||'unknown')+': '+x.text).join('\n') : '(none)'}`;
+
+    const contents = recent.filter(m => m && typeof m.text === 'string').map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text:m.text }],
+    }));
+
+    const userParts = [];
+    if (body.attachment?.base64 && body.attachment?.mimeType) {
+      userParts.push({ inline_data:{ mime_type:String(body.attachment.mimeType), data:String(body.attachment.base64) } });
+    }
+    if (message) userParts.push({ text:message });
+    contents.push({ role:'user', parts:userParts });
+
+    const wantsAction = isLocalActionRequest(message);
+    const wantsSearch = !wantsAction && isSearchRequest(message);
+    const tools = wantsSearch ? [{ google_search:{} }] : (wantsAction ? [{ functionDeclarations }] : []);
+
+    let data = await callGemini(key, {
+      systemInstruction:{ parts:[{ text:system }] },
+      contents,
+      ...(tools.length ? { tools } : {}),
+      generationConfig:{ temperature:0.55, maxOutputTokens:4096 },
     });
 
-    const recent = Array.isArray(body.recentMessages) ? body.recentMessages.slice(-14) : [];
-    const messages = recent
-      .filter(m => m && typeof m.text === 'string')
-      .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text }));
-
-    const content = [];
-    if (message) content.push({ type: 'text', text: message });
-    const a = body.attachment;
-    if (a?.base64 && a?.mimeType) {
-      const data = `data:${a.mimeType};base64,${a.base64}`;
-      if (String(a.mimeType).startsWith('image/')) {
-        content.push({ type: 'image', image: data });
-      } else {
-        content.push({ type: 'file', data, mediaType: a.mimeType, filename: a.filename || 'attachment' });
+    if (wantsAction) {
+      for (let loop = 0; loop < 4; loop++) {
+        const candidate = data?.candidates?.[0]?.content;
+        const calls = (candidate?.parts || []).filter(p => p.functionCall).map(p => p.functionCall);
+        if (!calls.length) break;
+        contents.push(candidate);
+        const responseParts = [];
+        for (const call of calls) {
+          const action = actionFrom(call);
+          if (action) actions.push(action);
+          responseParts.push({
+            functionResponse:{
+              name:call.name,
+              ...(call.id ? { id:call.id } : {}),
+              response: action ? { ok:true, queued_for_device:true } : { ok:false, error:'Invalid local action' },
+            },
+          });
+        }
+        contents.push({ role:'user', parts:responseParts });
+        data = await callGemini(key, {
+          systemInstruction:{ parts:[{ text:system }] },
+          contents,
+          tools:[{ functionDeclarations }],
+          generationConfig:{ temperature:0.45, maxOutputTokens:2048 },
+        });
       }
     }
-    messages.push({ role: 'user', content });
-
-    const result = await agent.generate({ messages });
-    const sources = (result.sources || []).map(s => ({
-      url: s.url,
-      title: s.title || s.url,
-    })).filter(s => s.url);
 
     return Response.json({
-      text: result.text || (actions.length ? 'Uitgevoerd.' : 'Geen tekstantwoord ontvangen.'),
+      text: outputText(data) || (actions.length ? 'Uitgevoerd.' : 'Geen tekstantwoord ontvangen.'),
       actions,
-      sources,
-      model: 'openai/gpt-5.6-terra',
+      sources: sourcesFrom(data),
+      model: MODEL,
+      freeTier:true,
     });
   } catch (error) {
-    console.error('chat-error', error);
-    return Response.json({ error: error?.message || 'JARVIS chat failed' }, { status: 500 });
+    console.error('gemini-chat-error', error);
+    const raw = error?.message || 'Gemini request failed';
+    const friendly = error?.status === 429 ? 'Je gratis Gemini-daglimiet is bereikt. Probeer later opnieuw; er wordt niets aangerekend.' : raw;
+    return Response.json({ error:friendly }, { status:error?.status || 500 });
   }
 }
