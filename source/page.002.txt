@@ -77,7 +77,7 @@ a.text, category:a.category || 'general', createdAt:new Date().toISOString() }];
 
   const chooseFile = async (file) => {
     if (!file) return;
-    if (file.size > 15 * 1024 * 1024) { flash('Maximaal 15 MB per bestand'); return; }
+    if (file.size > 3 * 1024 * 1024) { flash('Maximaal 3 MB per bestand'); return; }
     try {
       const base64 = await readFile(file);
       setAttachment({ filename:file.name, mimeType:file.type || 'application/octet-stream', base64 });
