@@ -1,9 +1,11 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'JARVIS',
-  description: 'Personal AI Core',
+  title: 'JARVIS · Personal Intelligence',
+  description: 'Jouw persoonlijke, mobiele AI-assistent met stem, geheugen en acties.',
   applicationName: 'JARVIS',
+  manifest: '/manifest.webmanifest',
+  formatDetection: { telephone: false },
   appleWebApp: {
     capable: true,
     title: 'JARVIS',
@@ -11,7 +13,7 @@ export const metadata = {
   },
   icons: {
     icon: '/icon.svg',
-    apple: '/icon.svg',
+    apple: '/apple-touch-icon.png',
   },
 };
 
@@ -19,13 +21,14 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#020914',
+  themeColor: '#02070c',
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="nl">
+    <html lang="nl-BE">
       <body>{children}</body>
     </html>
   );
