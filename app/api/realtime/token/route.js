@@ -12,18 +12,7 @@ export async function POST(request) {
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
       method:'POST',
       headers:{ 'content-type':'application/json', 'x-goog-api-key':key },
-      body:JSON.stringify({
-        uses:1,
-        expireTime,
-        newSessionExpireTime,
-        liveConnectConstraints:{
-          model:`models/${LIVE_MODEL}`,
-          config:{
-            responseModalities:['AUDIO'],
-            sessionResumption:{},
-          },
-        },
-      }),
+      body:JSON.stringify({ uses:1, expireTime, newSessionExpireTime }),
     });
     const text = await response.text();
     let data;
