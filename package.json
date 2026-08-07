@@ -4,7 +4,9 @@
   "private": true,
   "engines": {"node": ">=22"},
   "scripts": {
+    "predev": "node scripts/assemble.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/assemble.mjs",
     "build": "next build",
     "start": "next start"
   },
