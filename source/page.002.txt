@@ -123,22 +123,8 @@
     source.onended = () => playbackSourcesRef.current.delete(source);
   }, []);
 
-  const sendLiveActionResult = useCallback((fc) => {
-    const args = fc?.args || {};
-    let action = null;
-    if (fc?.name === 'save_memory' && args.text) action = {type:'save_memory',text:args.text,category:args.category||'general'};
-    if (fc?.name === 'add_task' && args.title) action = {type:'add_task',title:args.title};
-    if (fc?.name === 'add_event' && args.title && args.when) action = {type:'add_event',title:args.title,when:args.when};
-    if (fc?.name === 'save_note' && args.text) action = {type:'save_note',text:args.text};
-    if (action) applyActions([action]);
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ toolResponse:{ functionResponses:[{ name:fc.name, id:fc.id, response:{ result: action ? {ok:true,saved:true} : {ok:false,error:'Invalid action'} } }] } }));
-    }
-  }, [applyActions]);
-
   const startMicCapture = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
     micStreamRef.current = stream;
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioCtx(); inputContextRef.current = ctx;
@@ -146,17 +132,26 @@
     const source = ctx.createMediaStreamSource(stream); inputSourceRef.current = source;
     const processor = ctx.createScriptProcessor(4096, 1, 1); processorRef.current = processor;
     const gain = ctx.createGain(); gain.gain.value = 0; silentGainRef.current = gain;
+
     processor.onaudioprocess = event => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const input = event.inputBuffer.getChannelData(0);
-      const buffer = new ArrayBuffer(input.length * 2);
+      const sourceRate = ctx.sampleRate || 48000;
+      const targetRate = 16000;
+      const ratio = sourceRate / targetRate;
+      const outLength = Math.max(1, Math.floor(input.length / ratio));
+      const buffer = new ArrayBuffer(outLength * 2);
       const view = new DataView(buffer);
-      for (let i=0;i<input.length;i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
+      for (let i=0;i<outLength;i++) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
+        let sum = 0;
+        for (let j=start;j<end;j++) sum += input[j];
+        const s = Math.max(-1, Math.min(1, sum / Math.max(1, end - start)));
         view.setInt16(i*2, s < 0 ? s*0x8000 : s*0x7fff, true);
       }
-      ws.send(JSON.stringify({ realtimeInput:{ audio:{ data:bufferToBase64(buffer), mimeType:`audio/pcm;rate=${ctx.sampleRate}` } } }));
+      ws.send(JSON.stringify({ realtimeInput:{ audio:{ data:bufferToBase64(buffer), mimeType:'audio/pcm;rate=16000' } } }));
     };
     source.connect(processor); processor.connect(gain); gain.connect(ctx.destination);
     setLiveStatus('listening');
@@ -176,27 +171,33 @@
   }, [stopPlayback]);
 
   const startVoice = async () => {
-    if (!geminiKey.trim()) { setTab('more'); setMorePane('settings'); flash('Voeg eerst je gratis Gemini API-key toe'); return; }
+    const key = geminiKey.trim();
+    if (!key) { setTab('more'); setMorePane('settings'); flash('Voeg eerst je gratis Gemini API-key toe'); return; }
     setVoiceError(''); setLiveMessages([]); setLiveStatus('connecting'); setVoiceOpen(true);
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       outputContextRef.current = new AudioCtx();
       await outputContextRef.current.resume();
-      const tokenResponse = await fetch('/api/realtime/token', { method:'POST', headers:{'x-gemini-key':geminiKey.trim()} });
-      const tokenData = await tokenResponse.json();
-      if (!tokenResponse.ok) throw new Error(tokenData.error || `HTTP ${tokenResponse.status}`);
-      const ws = new WebSocket(`${tokenData.url}?access_token=${encodeURIComponent(tokenData.token)}`);
+
+      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(key)}`;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         setLiveStatus('connected');
         ws.send(JSON.stringify({ setup:{
           model:`models/${LIVE_MODEL}`,
-          generationConfig:{ responseModalities:['AUDIO'], speechConfig:{ voiceConfig:{ prebuiltVoiceConfig:{ voiceName:'Gacrux' } } } },
-          systemInstruction:{ parts:[{ text:`You are JARVIS, a private personal AI assistant. Speak Dutch by default unless the user changes language. Speak naturally, calmly and intelligently. Voice manner: mature, composed, refined, measured and subtly British/cinematic, but never imitate Paul Bettany or any real person. Keep spoken answers concise but useful. You can discuss normal topics, explain, plan, research current public information with Google Search, and use local tools for memories, tasks, agenda and notes. Current device time: ${new Date().toISOString()}.` }] },
-          inputAudioTranscription:{}, outputAudioTranscription:{}, sessionResumption:{},
-          tools:[{googleSearch:{}},{functionDeclarations:LIVE_FUNCTIONS}],
+          generationConfig:{
+            responseModalities:['AUDIO'],
+            speechConfig:{ voiceConfig:{ prebuiltVoiceConfig:{ voiceName:'Gacrux' } } },
+          },
+          systemInstruction:{ parts:[{ text:`You are JARVIS, a private personal AI assistant. Speak Dutch by default unless the user changes language. Speak naturally, calmly and intelligently. Voice manner: mature, composed, refined, measured and subtly British/cinematic, but never imitate Paul Bettany or any real person. Keep spoken answers concise but useful. Current device time: ${new Date().toISOString()}.` }] },
+          inputAudioTranscription:{},
+          outputAudioTranscription:{},
         } }));
       };
+
       ws.onmessage = async event => {
         try {
           const raw = typeof event.data === 'string' ? event.data : await event.data.text();
@@ -210,11 +211,27 @@
             const inline = part.inlineData || part.inline_data;
             if (inline?.data) await playPcm(inline.data);
           }
-          for (const fc of msg.toolCall?.functionCalls || []) sendLiveActionResult(fc);
-        } catch (error) { console.error('live-message', error); }
+          if (msg.goAway?.timeLeft) setVoiceError(`Gemini Live gaat opnieuw verbinden binnen ${msg.goAway.timeLeft}.`);
+        } catch (error) {
+          console.error('live-message', error);
+          setVoiceError(`Live bericht kon niet worden verwerkt: ${error?.message || error}`);
+        }
       };
-      ws.onerror = () => setVoiceError('Gemini Live-verbinding kreeg een fout.');
-      ws.onclose = () => setLiveStatus('closed');
+
+      ws.onerror = () => {
+        if (wsRef.current === ws) setVoiceError('Gemini Live WebSocket-fout. De verbinding kon niet stabiel worden geopend.');
+      };
+
+      ws.onclose = async event => {
+        const unexpected = wsRef.current === ws;
+        if (unexpected) {
+          wsRef.current = null;
+          setLiveStatus('closed');
+          const reason = event.reason ? ` — ${event.reason}` : '';
+          setVoiceError(`Gemini Live sloot de verbinding (code ${event.code}${reason}).`);
+          await cleanupVoice();
+        }
+      };
     } catch (error) {
       setVoiceError(error?.message || 'Live voice kon niet starten'); setLiveStatus('error');
       await cleanupVoice();
@@ -224,10 +241,12 @@
 
   const stopVoice = async () => {
     const archive = [...liveMessages];
-    try { wsRef.current?.close(); } catch {} wsRef.current = null;
+    const ws = wsRef.current;
+    wsRef.current = null;
+    try { ws?.close(1000, 'User ended session'); } catch {}
     await cleanupVoice();
     if (archive.length) setState(prev => ({ ...prev, voiceArchive:[...prev.voiceArchive, { id:uid(), createdAt:new Date().toISOString(), messages:archive }] }));
-    setLiveStatus('idle'); setVoiceOpen(false);
+    setLiveStatus('idle'); setVoiceOpen(false); setVoiceError('');
   };
 
-  if (!state) return <div className="boot"><div className="bootCore">J</div><p>JARVIS INITIALIZING</p></div>;
+  if (!state) return <div className="boot"><div classN
