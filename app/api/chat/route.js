@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const MODEL = 'gemini-2.5-flash-lite';
+const MODEL = 'gemini-3.5-flash-lite';
 const API = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const functionDeclarations = [
@@ -79,19 +79,6 @@ function outputText(data) {
   return (data?.candidates?.[0]?.content?.parts || []).filter(p => typeof p.text === 'string').map(p => p.text).join('').trim();
 }
 
-function sourcesFrom(data) {
-  const chunks = data?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  const seen = new Set();
-  const sources = [];
-  for (const chunk of chunks) {
-    const web = chunk?.web;
-    if (!web?.uri || seen.has(web.uri)) continue;
-    seen.add(web.uri);
-    sources.push({ url:web.uri, title:web.title || web.uri });
-  }
-  return sources.slice(0, 8);
-}
-
 function actionFrom(call) {
   const a = call?.args || {};
   if (call?.name === 'save_memory' && a.text) return { type:'save_memory', text:String(a.text), category:a.category || 'general' };
@@ -120,8 +107,14 @@ export async function POST(request) {
     const recent = Array.isArray(body.recentMessages) ? body.recentMessages.slice(-12) : [];
     const localTime = body.localTime || new Date().toISOString();
     const userName = String(body.userName || '').trim();
+    const wantsAction = isLocalActionRequest(message);
+    const wantsSearch = !wantsAction && isSearchRequest(message);
 
-    const system = `You are JARVIS, a highly capable private personal AI assistant in a mobile web app.\nDefault to Dutch (Belgian/NL) unless the user changes language. Be practical, accurate, conversational and direct. You are not the fictional Iron Man character and you do not imitate any real person. Help with normal conversation, explanations, study, planning, coding, research, travel, analysis, creative work and personal organization.\n\nFor local organizer requests, use the supplied function tools and only confirm an action after the function was called. Save only durable memories. For dates use device time ${localTime}.\nUser name: ${userName || '(not set)'}\nRelevant Memory Core:\n${memories.length ? memories.map(x=>'- '+x).join('\n') : '(none)'}\nRelevant older chats:\n${old.length ? old.map(x=>'- '+(x.role||'unknown')+': '+x.text).join('\n') : '(none)'}`;
+    const freshnessNote = wantsSearch
+      ? `\nIMPORTANT: This free text route has no Google Search grounding on Gemini 3.x Free Tier. Do not invent current facts. Tell the user briefly that current web research is available for free through JARVIS LIVE (tap the reactor), whose Live model has Google Search support.`
+      : '';
+
+    const system = `You are JARVIS, a highly capable private personal AI assistant in a mobile web app.\nDefault to Dutch (Belgian/NL) unless the user changes language. Be practical, accurate, conversational and direct. You are not the fictional Iron Man character and you do not imitate any real person. Help with normal conversation, explanations, study, planning, coding, research, travel, analysis, creative work and personal organization.\n\nFor local organizer requests, use the supplied function tools and only confirm an action after the function was called. Save only durable memories. For dates use device time ${localTime}.\nUser name: ${userName || '(not set)'}\nRelevant Memory Core:\n${memories.length ? memories.map(x=>'- '+x).join('\n') : '(none)'}\nRelevant older chats:\n${old.length ? old.map(x=>'- '+(x.role||'unknown')+': '+x.text).join('\n') : '(none)'}${freshnessNote}`;
 
     const contents = recent.filter(m => m && typeof m.text === 'string').map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -135,15 +128,11 @@ export async function POST(request) {
     if (message) userParts.push({ text:message });
     contents.push({ role:'user', parts:userParts });
 
-    const wantsAction = isLocalActionRequest(message);
-    const wantsSearch = !wantsAction && isSearchRequest(message);
-    const tools = wantsSearch ? [{ google_search:{} }] : (wantsAction ? [{ functionDeclarations }] : []);
-
     let data = await callGemini(key, {
       systemInstruction:{ parts:[{ text:system }] },
       contents,
-      ...(tools.length ? { tools } : {}),
-      generationConfig:{ temperature:0.55, maxOutputTokens:4096 },
+      ...(wantsAction ? { tools:[{ functionDeclarations }] } : {}),
+      generationConfig:{ maxOutputTokens:4096 },
     });
 
     if (wantsAction) {
@@ -169,7 +158,7 @@ export async function POST(request) {
           systemInstruction:{ parts:[{ text:system }] },
           contents,
           tools:[{ functionDeclarations }],
-          generationConfig:{ temperature:0.45, maxOutputTokens:2048 },
+          generationConfig:{ maxOutputTokens:2048 },
         });
       }
     }
@@ -177,7 +166,7 @@ export async function POST(request) {
     return Response.json({
       text: outputText(data) || (actions.length ? 'Uitgevoerd.' : 'Geen tekstantwoord ontvangen.'),
       actions,
-      sources: sourcesFrom(data),
+      sources: [],
       model: MODEL,
       freeTier:true,
     });
