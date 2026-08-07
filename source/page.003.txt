@@ -1,3 +1,4 @@
+ame="bootCore">J</div><p>JARVIS INITIALIZING</p></div>;
 
   const currentMessages = state.messages.filter(m => m.sessionId === state.sessionId);
   const openTasks = state.tasks.filter(t => !t.done);
