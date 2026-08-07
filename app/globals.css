@@ -729,6 +729,13 @@ a:focus-visible {
   line-height: 1.5;
 }
 
+.weatherMeta a {
+  color: var(--cyan-soft);
+  font-size: 8px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 .inlineLoader {
   padding: 28px 18px;
   color: var(--muted);

@@ -590,7 +590,7 @@ export default function JarvisApp() {
                     <div className="weatherCard">
                       <Icon name="weather" size={32} />
                       <div><strong>{Math.round(weather.current.temperature_c)}°</strong><span>{weather.current.condition}</span></div>
-                      <div className="weatherMeta"><b>{weather.location}</b><span>Voelt als {Math.round(weather.current.feels_like_c)}° · wind {Math.round(weather.current.wind_kmh)} km/u</span></div>
+                      <div className="weatherMeta"><b>{weather.location}</b><span>Voelt als {Math.round(weather.current.feels_like_c)}° · wind {Math.round(weather.current.wind_kmh)} km/u</span><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Weerdata: Open-Meteo</a></div>
                     </div>
                   ) : <div className="inlineLoader">{weatherError || 'Live weer wordt geladen…'}</div>}
                 </Panel>
