@@ -1,0 +1,22 @@
+ForexNexus Alpha voor Windows
+=============================
+
+1. Pak dit zip-bestand uit naar een vaste map, bijvoorbeeld C:\ForexNexus
+   (niet direct vanuit de zip starten).
+2. Dubbelklik op "Snelkoppelingen-maken.cmd" (eenmalig). Er komt een snelkoppeling
+   "ForexNexus Alpha" op je bureaublad en in het Startmenu.
+3. Start "ForexNexus Alpha". De eerste keer opent Kladblok met je eenmalige
+   wachtwoord; daarmee meld je je aan. Het app-venster opent in Microsoft Edge
+   (app-modus, zonder adresbalk).
+
+Goed om te weten
+- Zonder koppeling draait de app in DEMO-modus (synthetische data, geen meldingen).
+  Koppel OANDA en Telegram bij "Verbindingen" in de app.
+- De engine draait op de achtergrond, ook als je het venster sluit, maar ALLEEN
+  zolang deze pc aanstaat. Voor 24/7-bewaking: zie docs/DEPLOY-FLY.md (Fly.io).
+- De app is alleen bereikbaar vanaf deze pc (127.0.0.1:8737).
+- Gegevens en versleutelde sleutels: %LOCALAPPDATA%\ForexNexus
+- Stoppen: "ForexNexus-stoppen.cmd".
+- Windows SmartScreen kan waarschuwen omdat het pakket niet digitaal ondertekend
+  is: kies "Meer info" > "Toch uitvoeren".
+- Er worden nooit orders geplaatst.

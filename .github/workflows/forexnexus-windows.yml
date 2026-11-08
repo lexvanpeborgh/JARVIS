@@ -1,0 +1,87 @@
+name: ForexNexus Windows-app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/optimistic-hamilton-hfzhc1]
+    paths: ['forexnexus/**', '.github/workflows/forexnexus-windows.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forexnexus-windows
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: forexnexus/package-lock.json }
+
+      - name: Tests
+        working-directory: forexnexus
+        run: |
+          npm ci
+          npm test
+
+      - name: Pakket samenstellen (officiële Node-runtime, checksum gecontroleerd)
+        shell: pwsh
+        run: |
+          $v = (node -v).Trim()
+          $zip = "node-$v-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/$v/$zip" -OutFile $zip
+          Invoke-WebRequest "https://nodejs.org/dist/$v/SHASUMS256.txt" -OutFile SHASUMS256.txt
+          $expected = (Select-String -Path SHASUMS256.txt -Pattern " $zip$").Line.Split(' ')[0]
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "Checksum klopt niet voor $zip" }
+          Expand-Archive $zip -DestinationPath nodeextract
+          $out = 'dist\ForexNexus'
+          New-Item -ItemType Directory -Force "$out\runtime", "$out\app" | Out-Null
+          Copy-Item "nodeextract\node-$v-win-x64\node.exe" "$out\runtime\"
+          Copy-Item "nodeextract\node-$v-win-x64\LICENSE" "$out\runtime\NODE-LICENSE.txt"
+          Push-Location forexnexus
+          npm ci --omit=dev
+          Pop-Location
+          foreach ($d in 'src','public','migrations','node_modules') { Copy-Item -Recurse "forexnexus\$d" "$out\app\$d" }
+          Copy-Item forexnexus\package.json "$out\app\"
+          Copy-Item forexnexus\windows\* $out
+          Copy-Item forexnexus\README.md "$out\HANDLEIDING.md"
+          "Node $v · gebouwd $(Get-Date -Format o) · commit $env:GITHUB_SHA" | Set-Content "$out\VERSIE.txt"
+
+      - name: Rooktest op Windows
+        shell: pwsh
+        run: |
+          $env:FNX_DATA_DIR = "$env:RUNNER_TEMP\fnxdata"; $env:FNX_HOST = '127.0.0.1'; $env:PORT = '8737'
+          $p = Start-Process -FilePath dist\ForexNexus\runtime\node.exe -ArgumentList '--no-warnings', 'dist\ForexNexus\app\src\server\main.js' -PassThru -RedirectStandardOutput out.log -RedirectStandardError err.log
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8737/api/health -TimeoutSec 2; $ok = $true; break } catch { Start-Sleep -Milliseconds 500 } }
+          if (-not $ok) { Get-Content out.log, err.log; throw 'Engine startte niet' }
+          $r.Content
+          (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8737/).StatusCode
+          (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8737/vendor/lightweight-charts.mjs).StatusCode
+          if (-not (Test-Path "$env:FNX_DATA_DIR\INITIAL_PASSWORD.txt")) { throw 'Eenmalig wachtwoord niet aangemaakt' }
+          Stop-Process -Id $p.Id -Force
+          Get-Content out.log
+
+      - name: Zippen
+        shell: pwsh
+        run: Compress-Archive -Path dist\ForexNexus -DestinationPath ForexNexus-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with: { name: ForexNexus-Windows, path: ForexNexus-Windows.zip }
+
+      - name: Publiceren als downloadlink
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: forexnexus-windows
+          name: ForexNexus Alpha voor Windows
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          files: ForexNexus-Windows.zip
+          body: |
+            Download **ForexNexus-Windows.zip**, pak uit naar een vaste map (bijv. C:\ForexNexus) en lees LEESMIJ.txt.
+            Bevat de officiële Node.js-runtime (checksum gecontroleerd). Getest op Windows (GitHub-runner) vóór publicatie.
+            Geen automatische orders. De engine bewaakt alleen zolang de pc aanstaat.

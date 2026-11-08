@@ -28,7 +28,8 @@ if (!process.env.FNX_ACCESS_PASSWORD && !process.env.FNX_ACCESS_PASSWORD_HASH &&
 
 const engine = createEngine({ db, secrets, log: console });
 const { server } = createApp({ db, engine, secrets, log: console });
-server.listen(PORT, () => console.log(`[forexnexus] luistert op poort ${PORT}`));
+const HOST = process.env.FNX_HOST || undefined; // Windows-app: 127.0.0.1 (alleen deze pc)
+server.listen(PORT, HOST, () => console.log(`[forexnexus] luistert op ${HOST || 'alle interfaces'}:${PORT}`));
 
 async function shutdown(sig) {
   console.log(`[forexnexus] ${sig}: netjes afsluiten`);
