@@ -13,9 +13,10 @@ actuele prijzen op fly.io/docs/about/pricing (een creditcard is vereist; de app 
    - Variable `FLY_APP_NAME` = een unieke naam, bijv. `forexnexus-alpha-lex`
 4. **Workflow beschikbaar maken**: de workflow moet op de standaardbranch staan —
    merge de pull request van branch `claude/optimistic-hamilton-hfzhc1` naar `main`.
-5. **Eerste installatie**: GitHub → *Actions* → *ForexNexus → Fly.io* → *Run workflow* →
-   vink **Eerste installatie** aan → *Run*. De workflow test, maakt app + volume +
-   versleutelingssleutel aan en deployt.
+5. **Deploy**: na de merge start de workflow automatisch (of: *Actions* → *ForexNexus →
+   Fly.io* → *Run workflow*). Hij test, maakt zo nodig app + volume +
+   versleutelingssleutel aan en deployt. Zet stap 3 vóór de merge, anders faalt de
+   eerste run met een duidelijke melding en start je hem daarna opnieuw.
 6. **Openen**: `https://<FLY_APP_NAME>.fly.dev` — op iPhone in Safari → Delen →
    *Zet op beginscherm*. Vul in de app bij Verbindingen ook *Publieke app-URL* in.
 

@@ -3,10 +3,9 @@ name: ForexNexus → Fly.io
 on:
   workflow_dispatch:
     inputs:
-      setup:
-        description: 'Eerste installatie: app, volume en secrets aanmaken'
-        type: boolean
-        default: false
+      note:
+        description: 'Optionele notitie bij deze deploy'
+        required: false
   push:
     branches: [main]
     paths: ['forexnexus/**', '.github/workflows/forexnexus-fly.yml']
@@ -45,8 +44,8 @@ jobs:
         working-directory: .
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Eerste installatie (app, volume, secrets)
-        if: ${{ inputs.setup }}
+      # Idempotent: maakt alleen aan wat nog ontbreekt; bestaande sleutel blijft behouden.
+      - name: App, volume en secrets (alleen indien ontbrekend)
         run: |
           flyctl apps create "$APP" --org personal || echo "App bestaat al; doorgaan."
           if ! flyctl volumes list -a "$APP" | grep -q fnx_data; then
