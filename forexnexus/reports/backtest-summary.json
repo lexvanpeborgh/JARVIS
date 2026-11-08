@@ -1,0 +1,220 @@
+{
+  "generatedAt": "2026-11-08T00:48:52.364Z",
+  "rows": [
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL-EUR_USD",
+      "instrument": "EUR_USD",
+      "strategy": "LEGACY_EMA_RSI_VOL v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL_ATR4-EUR_USD",
+      "instrument": "EUR_USD",
+      "strategy": "LEGACY_EMA_RSI_VOL_ATR4 v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-STRUCT_SWEEP_MSS-EUR_USD",
+      "instrument": "EUR_USD",
+      "strategy": "STRUCT_SWEEP_MSS v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 136,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {
+        "SPREAD_TOO_WIDE_ATR": 81,
+        "RR_BELOW_MIN": 132,
+        "SESSION_NOT_ALLOWED": 92
+      }
+    },
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL-GBP_USD",
+      "instrument": "GBP_USD",
+      "strategy": "LEGACY_EMA_RSI_VOL v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL_ATR4-GBP_USD",
+      "instrument": "GBP_USD",
+      "strategy": "LEGACY_EMA_RSI_VOL_ATR4 v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-STRUCT_SWEEP_MSS-GBP_USD",
+      "instrument": "GBP_USD",
+      "strategy": "STRUCT_SWEEP_MSS v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 160,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {
+        "SPREAD_TOO_WIDE_ATR": 117,
+        "SESSION_NOT_ALLOWED": 101,
+        "RR_BELOW_MIN": 155
+      }
+    },
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL-USD_JPY",
+      "instrument": "USD_JPY",
+      "strategy": "LEGACY_EMA_RSI_VOL v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-LEGACY_EMA_RSI_VOL_ATR4-USD_JPY",
+      "instrument": "USD_JPY",
+      "strategy": "LEGACY_EMA_RSI_VOL_ATR4 v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 0,
+      "skipped": 0,
+      "decisions": 0,
+      "expectancyR": null,
+      "netR": 0,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {}
+    },
+    {
+      "id": "synthetic-STRUCT_SWEEP_MSS-USD_JPY",
+      "instrument": "USD_JPY",
+      "strategy": "STRUCT_SWEEP_MSS v1.0.0",
+      "kind": "synthetic",
+      "candles": 37416,
+      "period": {
+        "from": "2026-01-05T00:00:00.000Z",
+        "to": "2026-07-03T20:55:00.000Z"
+      },
+      "trades": 1,
+      "skipped": 0,
+      "decisions": 127,
+      "expectancyR": -1.0161,
+      "netR": -1.016,
+      "verdict": "ONVOLDOENDE BEWIJS",
+      "blockers": {
+        "SPREAD_TOO_WIDE_ATR": 29,
+        "SESSION_NOT_ALLOWED": 78,
+        "RR_BELOW_MIN": 124
+      }
+    }
+  ],
+  "quality": [
+    {
+      "instrument": "EUR_USD",
+      "input": 37416,
+      "accepted": 37416,
+      "rejected": 0,
+      "from": "2026-01-05T00:00:00.000Z",
+      "to": "2026-07-03T20:55:00.000Z",
+      "counts": {},
+      "gapCount": 0,
+      "missingCandles": 0,
+      "ok": true,
+      "note": "synthetisch"
+    },
+    {
+      "instrument": "GBP_USD",
+      "input": 37416,
+      "accepted": 37416,
+      "rejected": 0,
+      "from": "2026-01-05T00:00:00.000Z",
+      "to": "2026-07-03T20:55:00.000Z",
+      "counts": {},
+      "gapCount": 0,
+      "missingCandles": 0,
+      "ok": true,
+      "note": "synthetisch"
+    },
+    {
+      "instrument": "USD_JPY",
+      "input": 37416,
+      "accepted": 37416,
+      "rejected": 0,
+      "from": "2026-01-05T00:00:00.000Z",
+      "to": "2026-07-03T20:55:00.000Z",
+      "counts": {},
+      "gapCount": 0,
+      "missingCandles": 0,
+      "ok": true,
+      "note": "synthetisch"
+    }
+  ]
+}

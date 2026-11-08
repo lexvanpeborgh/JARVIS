@@ -1,0 +1,51 @@
+ok 1 - uitvoering op de volgende open (ask), niet binnen de signaalcandle
+ok 2 - SL en TP in dezelfde candle → SL eerst (conservatief), optimistische waarde gerapporteerd
+ok 3 - gap voorbij de stop vult op de bereikbare open, niet op de stopprijs
+ok 4 - datagat tijdens positie → ONBEPAALD, niet gescoord
+ok 5 - entry te ver weg op de volgende open → ENTRY_MISSED, niet gevuld
+ok 6 - kostenscenario's verslechteren het resultaat; bruto ≥ netto
+ok 7 - warm-up uitgesloten en splits chronologisch
+ok 8 - replay levert dezelfde causale beslissingen als de backtest
+ok 9 - EMA: SMA-seed op index n-1 en recursie
+ok 10 - RSI Wilder: hand-berekende referentie
+ok 11 - RSI-randgevallen: alleen winst, alleen verlies, vlak
+ok 12 - ATR Wilder: True Range met vorige close en seed
+ok 13 - pips en ticks per instrument
+ok 14 - pipwaarde vereist een conversiekoers en verzint niets
+ok 15 - legacy RR = 0,75 / 1,75 vóór kosten, SELL gespiegeld
+ok 16 - netto RR is lager dan bruto bij slippage
+ok 17 - tickafronding van niveaus: stop weg van entry, daarna RR herberekend
+ok 18 - positiegrootte: geen budget → geen berekening; < 1 contract wordt gemeld, niet naar boven afgerond
+ok 19 - Forex weekend en DST: Londen/New York in UTC verschuiven correct
+ok 20 - MES-contract: expliciet rolbeleid, concrete maand
+ok 21 - datakwaliteit: gaten, duplicaten, ongeldige waarden, onvolledig — niets opgevuld
+ok 22 - CSV met gaten krijgt een kwaliteitsrapport
+ok 23 - kalender: ontbrekend, verouderd en niet-dekkend is niet veilig; blackoutvensters
+ok 24 - volledige keten: gesloten candle → BUY → signaal → één Telegram-melding → zichtbaar in API
+ok 25 - outbox: één signaal → hooguit één entrymelding (dedupe)
+ok 26 - outbox: 429 respecteert Retry-After; daarna SENT
+ok 27 - outbox: timeout na verzending → UNKNOWN, niet blind opnieuw verstuurd
+ok 28 - outbox: herstart tussen claim en verzending → UNKNOWN
+ok 29 - outbox: verouderde entry wordt vlak vóór verzending EXPIRED; token nooit in foutmelding
+ok 30 - lease: parallelle workers — slechts één houdt de lease; overname na verlopen
+ok 31 - herhaalde candle is idempotent; historische correctie krijgt revisie + melding
+ok 32 - secrets: versleuteld opgeslagen, leeg veld wist niet, wachtwoordhash
+ok 33 - worker-authenticatie: geldig, verlopen, vervalst en replay
+ok 34 - gemiste heartbeat verandert de zichtbare status
+ok 35 - OANDA-parsing: tickvolume en bid/ask; heartbeat
+ok 36 - QuoteHub: ongewijzigde prijs met heartbeat ≠ verbroken; zonder heartbeat STALE; nooit lokale timestamp
+ok 37 - kalenderparsing: weekdekking zondag–zondag (ET)
+ok 38 - API: auth vereist, CSRF verplicht, geen secrets in responses, strikte validatie
+ok 39 - API: CSV-import met gaten → kwaliteitsrapport; dubbel bestand geweigerd
+ok 40 - legacy BUY op de juiste gesloten candle met exacte regels en niveaus
+ok 41 - SELL is het spiegelbeeld (entry op bid)
+ok 42 - onvolledige candle geeft geen bevestigd signaal
+ok 43 - stale quote, late evaluatie, brede spread → geen entry
+ok 44 - nieuwsblackout en ontbrekende/verouderde kalender blokkeren
+ok 45 - sessie, markt gesloten, duplicaat en cooldown
+ok 46 - volume vereist: ontbrekend volume blokkeert, wordt niet verzonnen
+ok 47 - entry gemist wordt niet opnieuw aangeboden
+ok 48 - structuurvariant: RR-eis 2,0 wijst een ongeschikte setup af
+ok 49 - geen look-ahead: beslissing op afgekapte reeks = beslissing op volledige reeks
+ok 50 - pivot pas bruikbaar na bevestiging (knownAt = index + R)
+ok 51 - demo-/synthetische data is nooit alertable

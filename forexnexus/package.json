@@ -1,0 +1,21 @@
+{
+  "name": "forexnexus-alpha",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ForexNexus Alpha — realtime marktanalyse, verklaarbare signalen, risicoplannen en causale backtests.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server/main.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js",
+    "backtest": "node --no-warnings=ExperimentalWarning scripts/run-backtests.js"
+  },
+  "dependencies": {
+    "htm": "3.1.1",
+    "hyparquet": "1.31.5",
+    "lightweight-charts": "5.2.1",
+    "preact": "10.29.7"
+  }
+}

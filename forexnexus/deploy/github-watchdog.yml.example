@@ -1,0 +1,20 @@
+# OPTIONELE externe watchdog (GitHub Actions). Niet actief: kopieer naar
+# .github/workflows/ en zet secrets FNX_URL en FNX_WORKER_SECRET.
+# Let op: GitHub-cron kan vertraagd zijn; dit is een extra controle, geen scheduler.
+name: forexnexus-watchdog
+on:
+  schedule: [{ cron: '*/15 * * * 1-5' }]
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ondertekende tick
+        env: { URL: '${{ secrets.FNX_URL }}', S: '${{ secrets.FNX_WORKER_SECRET }}' }
+        run: |
+          node -e '
+          const c=require("crypto");const ts=Date.now();const n=c.randomBytes(16).toString("hex");const b="{}";
+          const bh=c.createHash("sha256").update(b).digest("hex");
+          const sig=c.createHmac("sha256",process.env.S).update(`${ts}.${n}.POST./api/worker/tick.${bh}`).digest("hex");
+          fetch(process.env.URL+"/api/worker/tick",{method:"POST",body:b,headers:{"x-fnx-timestamp":String(ts),"x-fnx-nonce":n,"x-fnx-signature":sig}})
+          .then(async r=>{const j=await r.json();console.log(j);if(!r.ok||j.missedScans>2)process.exit(1)})'

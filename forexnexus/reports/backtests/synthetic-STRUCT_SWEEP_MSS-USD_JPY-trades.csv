@@ -1,0 +1,2 @@
+idx,status,direction,signalT,entryT,entryFill,entryRef,sl,tp,exitT,exitPx,exitReason,rGross,rNet,pnlPerUnit,holdingMin,ambiguous,split,sessions,reason
+0,CLOSED,SHORT,2026-01-19T11:35:00.000Z,2026-01-19T11:40:00.000Z,152.25,152.252,152.374,151.934,2026-01-20T00:15:00.000Z,152.376,SL,-0.9516129032258027,-1.0161290322581422,,760,false,train,london,

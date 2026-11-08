@@ -1,0 +1,25 @@
+# Voorbeeld voor Fly.io (controleer actuele prijzen/limieten vóór activeren).
+app = "forexnexus-alpha-CHANGE-ME"
+primary_region = "ams"
+
+[build]
+
+[env]
+  FNX_DATA_DIR = "/data"
+  FNX_COOKIE_SECURE = "1"
+  PORT = "8080"
+
+[[mounts]]
+  source = "fnx_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # de engine moet blijven draaien
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpus = 1
