@@ -1,7 +1,7 @@
 // Service worker: cachet uitsluitend de app-shell (statische bestanden).
 // /api/-responses (koersen, signalen, instellingen, secrets) worden NOOIT gecachet.
-const VERSION = 'fnx-shell-v1';
-const SHELL = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/views.js', '/js/api.js', '/js/chart.js',
+const VERSION = 'fnx-shell-v2';
+const SHELL = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/views.js', '/js/api.js', '/js/chart.js', '/js/trade.js',
   '/vendor/preact.mjs', '/vendor/preact-hooks.mjs', '/vendor/htm.mjs', '/vendor/lightweight-charts.mjs',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png'];
 

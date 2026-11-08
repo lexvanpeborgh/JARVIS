@@ -194,13 +194,66 @@ function targetCandidates(series, i, long, entryRef, p) {
   return cands.filter(c => c.price < entryRef).sort((a, b) => b.price - a.price);
 }
 
+
+// EMA_RSI_WINDOW v1.0.0 — NIEUWE strategieversie (geen wijziging van de legacy-baseline).
+// Verschil met legacy: het RSI-extreem mag binnen de laatste N gesloten candles liggen
+// (incl. de signaalcandle) in plaats van exact op de kruisingscandle; volume is geen
+// voorwaarde; SL 1,5 × ATR en TP2 3 × ATR (nominale bruto RR 2,0).
+const WINDOW = {
+  id: 'EMA_RSI_WINDOW', version: '1.0.0', family: 'EMA_RSI_WINDOW', name: 'EMA-kruising na RSI-extreem',
+  timeframes: ['M5'], instruments: ['EUR_USD', 'GBP_USD', 'USD_JPY'],
+  requiresVolume: false, needsStructure: false, minHistory: 100,
+  params: { emaFast: 9, emaSlow: 21, rsi: 14, atr: 14, rsiBuyBelow: 30, rsiSellAbove: 70, rsiWindow: 10, slAtr: 1.5, tp1Atr: 1.5, tp2Atr: 3 },
+  sessions: ['london', 'newyork'],
+  exit: { target: 'tp2', tp1Role: 'observation', text: 'Volledige exit op SL (1,5 × ATR) of TP2 (3 × ATR). TP1 (1,5 × ATR) is een observatieniveau.' },
+  hypothesis: 'Een EMA9/21-kruising kort na een RSI14-extreem markeert een kortetermijnomslag na een overdreven beweging.',
+  rrPolicy: 'Nominale bruto RR TP2 = 2,00 vóór kosten en tickafronding.',
+  rules: {
+    LONG: ['RSI14 < 30 op minstens één van de laatste 10 gesloten candles (incl. signaalcandle)', 'EMA9 ≤ EMA21 op de vorige gesloten candle', 'EMA9 > EMA21 op de signaalcandle'],
+    SHORT: ['RSI14 > 70 op minstens één van de laatste 10 gesloten candles (incl. signaalcandle)', 'EMA9 ≥ EMA21 op de vorige gesloten candle', 'EMA9 < EMA21 op de signaalcandle'],
+  },
+  note: 'Nieuwe versie naast de legacy-baseline; afzonderlijk te backtesten.',
+
+  setup(series, i) {
+    const { ind } = series; const p = this.params; const dp = series.inst.precision;
+    const from = Math.max(0, i - p.rsiWindow + 1);
+    let minR = Infinity; let maxR = -Infinity; let minAt = null; let maxAt = null;
+    for (let k = from; k <= i; k += 1) {
+      const r = ind.rsi[k]; if (r == null) continue;
+      if (r < minR) { minR = r; minAt = k; }
+      if (r > maxR) { maxR = r; maxAt = k; }
+    }
+    const ef = ind.emaFast[i]; const es = ind.emaSlow[i]; const efp = ind.emaFast[i - 1]; const esp = ind.emaSlow[i - 1];
+    const atr = ind.atr[i];
+    const mk = long => [
+      { id: 'rsi_window', ok: long ? minR < p.rsiBuyBelow : maxR > p.rsiSellAbove, label: long ? `RSI14 < ${p.rsiBuyBelow} in laatste ${p.rsiWindow} candles` : `RSI14 > ${p.rsiSellAbove} in laatste ${p.rsiWindow} candles`, value: Number((long ? minR : maxR).toFixed(2)), detail: long ? `Laagste RSI14: ${fmt(minR, 2)} (${i - minAt} candle(s) geleden)` : `Hoogste RSI14: ${fmt(maxR, 2)} (${i - maxAt} candle(s) geleden)` },
+      { id: 'ema_prev', ok: efp != null && (long ? efp <= esp : efp >= esp), label: long ? 'EMA9 ≤ EMA21 vorige candle' : 'EMA9 ≥ EMA21 vorige candle', value: null, detail: `EMA9 ${fmt(efp, dp + 1)} / EMA21 ${fmt(esp, dp + 1)}` },
+      { id: 'ema_now', ok: ef != null && (long ? ef > es : ef < es), label: long ? 'EMA9 > EMA21 signaalcandle' : 'EMA9 < EMA21 signaalcandle', value: null, detail: `EMA9 ${fmt(ef, dp + 1)} / EMA21 ${fmt(es, dp + 1)}` },
+    ];
+    const L = mk(true); const S = mk(false);
+    const pl = L.filter(x => x.ok).length; const ps = S.filter(x => x.ok).length;
+    const triggered = pl === 3 ? 'LONG' : ps === 3 ? 'SHORT' : null;
+    const focus = triggered || (pl >= ps ? 'LONG' : 'SHORT');
+    let preparing = false; let awaiting = null;
+    if (!triggered && L[0].ok && ef <= es) { preparing = true; awaiting = 'RSI-extreem laag gezien; wacht op EMA9 boven EMA21 op een gesloten candle.'; }
+    else if (!triggered && S[0].ok && ef >= es) { preparing = true; awaiting = 'RSI-extreem hoog gezien; wacht op EMA9 onder EMA21 op een gesloten candle.'; }
+    return {
+      triggered, direction: focus, conditions: focus === 'LONG' ? L : S, preparing, awaiting, against: [],
+      levels: entryRef => ({ ...legacyLevels(focus, entryRef, atr, p), exitTarget: 'tp2', tp1Role: 'observation' }),
+      invalidation: 'Ongeldig bij stop geraakt vóór entry, verlopen entryvenster of te grote koersafwijking.',
+      evidence: { rsiMinWindow: minR, rsiMaxWindow: maxR, emaFast: ef, emaSlow: es, atr },
+    };
+  },
+};
+
 export const STRATEGIES = {
+  EMA_RSI_WINDOW: WINDOW,
   LEGACY_EMA_RSI_VOL: legacyFactory({ id: 'LEGACY_EMA_RSI_VOL', version: '1.0.0', tp2Mult: 3.5, name: 'Legacy EMA9/21 + RSI14 + volume' }),
   LEGACY_EMA_RSI_VOL_ATR4: legacyFactory({ id: 'LEGACY_EMA_RSI_VOL_ATR4', version: '1.0.0', tp2Mult: 4, name: 'Legacy-variant met TP2 op 4 × ATR' }),
   STRUCT_SWEEP_MSS: STRUCT,
 };
 
-export const DEFAULT_STRATEGY = 'LEGACY_EMA_RSI_VOL';
+export const DEFAULT_STRATEGY = 'EMA_RSI_WINDOW';
 
 export function getStrategy(id) {
   const s = STRATEGIES[id];

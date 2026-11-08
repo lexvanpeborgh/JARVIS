@@ -200,6 +200,11 @@ export function sensitivity(baseOpts, variants) {
 }
 
 export const SENSITIVITY_VARIANTS = {
+  EMA_RSI_WINDOW: [
+    { label: 'RSI-venster 5', params: { rsiWindow: 5 } },
+    { label: 'RSI-venster 20', params: { rsiWindow: 20 } },
+    { label: 'RSI 25/75', params: { rsiBuyBelow: 25, rsiSellAbove: 75 } },
+  ],
   LEGACY_EMA_RSI_VOL: [
     { label: 'RSI 25/75', params: { rsiBuyBelow: 25, rsiSellAbove: 75 } },
     { label: 'RSI 35/65', params: { rsiBuyBelow: 35, rsiSellAbove: 65 } },

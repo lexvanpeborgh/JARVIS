@@ -164,15 +164,35 @@ export function createTradingChart(el, { inst, tf = 'M5' }) {
     bands.setBands(b);
     // markers
     const m = [];
+    const stepMs = step * 1000;
+    const barOf = ms => sec(ms - (ms % stepMs));
+    const inView = t => ts.length && t >= ts[0] && t <= ts.at(-1) + step;
     for (const sg of data.signals || []) {
       const long = sg.direction === 'LONG';
-      m.push({ time: sec(sg.candle_t), position: long ? 'belowBar' : 'aboveBar', color: long ? css('--buy') : css('--sell'), shape: long ? 'arrowUp' : 'arrowDown', text: `${long ? 'BUY' : 'SELL'}${sg.data_kind !== 'real' ? ' (demo)' : ''}` });
+      // exact op de entryprijs van de gesloten signaalcandle
+      m.push({ time: sec(sg.candle_t), position: long ? 'atPriceBottom' : 'atPriceTop', price: sg.entry_ref, color: long ? css('--buy') : css('--sell'), shape: long ? 'arrowUp' : 'arrowDown', text: `${long ? 'BUY' : 'SELL'} ${px(inst, sg.entry_ref)}${sg.data_kind !== 'real' ? ' (demo)' : ''}` });
       for (const ev of sg.events || []) {
-        const t = sec(ev.at - (ev.at % (step * 1000)));
-        if (!ts.length || t > ts.at(-1) || t < ts[0]) continue;
-        if (ev.type === 'EXPIRED' || ev.type === 'CANCELLED' || ev.type === 'ENTRY_MISSED') m.push({ time: t, position: long ? 'belowBar' : 'aboveBar', color: css('--faint'), shape: 'circle', text: ev.type === 'ENTRY_MISSED' ? 'GEMIST' : ev.type });
-        if (ev.type === 'EXIT_LONG' || ev.type === 'EXIT_SHORT') m.push({ time: t, position: long ? 'aboveBar' : 'belowBar', color: css('--accent'), shape: 'square', text: ev.type.replace('_', ' ') });
+        const t = barOf(ev.at);
+        if (!inView(t)) continue;
+        if (ev.type === 'EXPIRED' || ev.type === 'CANCELLED' || ev.type === 'ENTRY_MISSED') m.push({ time: t, position: long ? 'belowBar' : 'aboveBar', color: css('--faint'), shape: 'circle', size: 0.6, text: ev.type === 'ENTRY_MISSED' ? 'GEMIST' : ev.type });
       }
+    }
+    const liveKeys = new Set((data.signals || []).map(sg => sec(sg.candle_t)));
+    for (const hsig of data.history || []) {
+      const long = hsig.direction === 'LONG'; const t = sec(hsig.signalT);
+      if (liveKeys.has(t) || !inView(t)) continue;
+      if (hsig.blocked) {
+        const why = { SESSION_NOT_ALLOWED: 'buiten sessie', SPREAD_TOO_WIDE_ATR: 'spread', SPREAD_TOO_WIDE_ABS: 'spread', NEWS_BLACKOUT: 'nieuws', RR_BELOW_MIN: 'RR<2', NO_TARGET: 'geen target', COOLDOWN: 'cooldown', MARKET_CLOSED: 'markt dicht', DATA_GAP: 'datagat' }[hsig.blocked[0]] || hsig.blocked[0];
+        if (hsig.entryRef != null) m.push({ time: t, position: long ? 'atPriceBottom' : 'atPriceTop', price: hsig.entryRef, color: css('--faint'), shape: long ? 'arrowUp' : 'arrowDown', size: 0.7, text: `${long ? 'BUY' : 'SELL'}? ${why}` });
+        continue;
+      }
+      m.push({ time: t, position: long ? 'atPriceBottom' : 'atPriceTop', price: hsig.entryRef, color: long ? css('--buy') : css('--sell'), shape: long ? 'arrowUp' : 'arrowDown', text: `${long ? 'BUY' : 'SELL'} ${px(inst, hsig.entryRef)}${hsig.skipped ? ' (gemist)' : ''}` });
+      if (hsig.exitT && hsig.status === 'CLOSED' && inView(sec(hsig.exitT))) m.push({ time: sec(hsig.exitT), position: 'atPriceMiddle', price: hsig.exitPx, color: (hsig.rNet ?? 0) >= 0 ? css('--buy') : css('--sell'), shape: 'square', size: 0.7, text: `${hsig.exitReason.startsWith('TP') ? 'TP' : 'SL'} ${hsig.rNet >= 0 ? '+' : ''}${hsig.rNet.toFixed(2)}R` });
+    }
+    for (const p of data.paper || []) {
+      const long = p.direction === 'LONG'; const t = barOf(p.opened_at);
+      if (inView(t)) m.push({ time: t, position: 'atPriceMiddle', price: p.entry, color: css('--accent'), shape: 'circle', size: 0.8, text: `Paper ${long ? 'koop' : 'verkoop'} ${px(inst, p.entry)}` });
+      if (p.closed_at && inView(barOf(p.closed_at))) m.push({ time: barOf(p.closed_at), position: 'atPriceMiddle', price: p.exit_price, color: (p.realized_r ?? 0) >= 0 ? css('--buy') : css('--sell'), shape: 'square', size: 0.8, text: `${long ? 'EXIT LONG' : 'EXIT SHORT'} ${px(inst, p.exit_price)}${p.realized_r != null ? ` (${p.realized_r >= 0 ? '+' : ''}${p.realized_r.toFixed(2)}R)` : ''}` });
     }
     for (const mk of data.extraMarkers || []) m.push(mk);
     if (layers.structure) {

@@ -13,7 +13,7 @@ import { getSetting, setSetting } from '../store/db.js';
 export const DEFAULT_CONFIG = Object.freeze({
   provider: { name: 'demo', env: 'practice', accountId: '' },
   watchlist: [...DEFAULT_WATCHLIST],
-  strategies: { enabled: ['LEGACY_EMA_RSI_VOL', 'STRUCT_SWEEP_MSS'], default: DEFAULT_STRATEGY },
+  strategies: { enabled: ['EMA_RSI_WINDOW', 'LEGACY_EMA_RSI_VOL', 'STRUCT_SWEEP_MSS'], default: DEFAULT_STRATEGY },
   sessions: DEFAULT_SESSIONS,
   fxHolidays: DEFAULT_FX_HOLIDAYS,
   newsPolicy: DEFAULT_NEWS_POLICY,
@@ -21,7 +21,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   costs: DEFAULT_COSTS,
   risk: { accountCcy: 'EUR', balance: null, riskPct: null, riskMoney: null, costBufferPct: 0, maxPositions: 2, dailyLossLimitR: null },
   notifications: { telegramEnabled: false, chatId: '', entry: true, cancelled: true, expired: false, paperExit: true, cooldownMin: 30 },
-  paper: { autoStrategy: null },
+  // Papersaldo is een expliciet gekozen, instelbaar oefenbedrag — geen echt accountsaldo.
+  paper: { autoStrategy: 'EMA_RSI_WINDOW', balance: 10000, currency: 'EUR', riskPct: 1 },
   display: { tz: 'Europe/Brussels' },
   ai: { provider: 'none', model: 'gemini-3.5-flash-lite', maxCallsPerDay: 50 },
   scheduler: { evalDelaySec: 5, candleRetrySec: 10, candleRetries: 3 },
@@ -81,6 +82,7 @@ export function validateConfigPatch(patch) {
   if (p.ai?.provider && !['none', 'gemini'].includes(p.ai.provider)) errors.push('ai.provider ongeldig');
   if (p.appUrl != null && p.appUrl !== '' && !/^https:\/\/[^\s"<>]{3,200}$/.test(p.appUrl)) errors.push('appUrl moet met https:// beginnen');
   if (p.paper?.autoStrategy != null && !STRATEGIES[p.paper.autoStrategy]) errors.push('paper.autoStrategy ongeldig');
+  if (p.paper) { if ('balance' in p.paper && !isNum(p.paper.balance, 1, 1e9)) errors.push('paper.balance ongeldig'); if ('riskPct' in p.paper && !isNum(p.paper.riskPct, 0.01, 10)) errors.push('paper.riskPct ongeldig'); if (p.paper.currency && !/^[A-Z]{3}$/.test(p.paper.currency)) errors.push('paper.currency ongeldig'); }
   if (JSON.stringify(p).length > 20000) errors.push('Configuratie te groot');
   return errors;
 }

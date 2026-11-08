@@ -72,7 +72,25 @@ export function chartData(db, { instrument, tf = 'M5', strategyId, limit = 600, 
       blackouts: bos.map(b => ({ start: b.start, end: b.end, title: b.event.title, currency: b.event.currency, rule: b.rule })),
     },
     signals: signals.map(s => ({ ...s, events: sigEvents.filter(e => e.signal_id === s.id).map(e => ({ type: e.type, at: e.at })) })),
+    paper: db.all('SELECT id, direction, units, entry, sl, tp, status, opened_at, closed_at, exit_price, exit_reason, realized_r, origin FROM paper_positions WHERE instrument = ? AND opened_at >= ? ORDER BY opened_at', instrument, from),
+    history: tf === 'M5' ? historicalSignals(base, inst, strat, cfg, from) : [],
   };
+}
+
+/**
+ * Historische signalen over de geladen candles: dezelfde causale evaluatie als de backtest
+ * (beslissing bij de close, uitvoering op de volgende open). Nieuwsfilter staat hierbij uit,
+ * omdat de historische kalender niet altijd beschikbaar is; dat wordt in de UI vermeld.
+ */
+function historicalSignals(candles, inst, strat, cfg, from) {
+  try {
+    const r = runBacktest({ candles: candles.filter(c => c.complete !== false), inst, tf: 'M5', strategy: strat, costs: cfg.costs, sessions: cfg.sessions, limits: cfg.limits, accountCcy: cfg.risk.accountCcy });
+    const out = [];
+    for (const t of r.trades) if (t.signalT >= from) out.push({ signalT: t.signalT, direction: t.direction, entryRef: t.entryRef, entryT: t.entryT, entryFill: t.entryFill, exitT: t.exitT, exitPx: t.exitPx, exitReason: t.exitReason, rNet: t.status === 'CLOSED' ? t.rNet : null, status: t.status, sl: t.plan.sl, tp: t.plan[t.plan.exitTarget] });
+    for (const t of r.skipped) if (t.signalT >= from) out.push({ signalT: t.signalT, direction: t.direction, entryRef: t.entryRef, skipped: t.reason });
+    for (const d of r.decisions) if (d.state === 'NO_TRADE' && d.t >= from) out.push({ signalT: d.t, direction: d.direction, entryRef: d.entryRef, blocked: d.blockers });
+    return out;
+  } catch { return []; }
 }
 
 export function sourceInfo(cfg, dsRow, inst) {

@@ -23,6 +23,10 @@ risicoplannen, paper trading en causale backtests. **Plaatst nooit orders.**
 - **Paper & dagboek:** posities, geaccepteerde en afgewezen entryverzoeken, notities met screenshot.
 - **Engine & data:** status afgeleid uit opgeslagen heartbeats, het volgende scantijdstip, gemiste scans, latency en datakwaliteit.
 
+## Windows-app
+
+`ForexNexus-Alpha-Setup.exe` installeert per gebruiker, zonder beheerdersrechten, in `%LOCALAPPDATA%\Programs\ForexNexus`. Je krijgt snelkoppelingen op het bureaublad en in het Startmenu, optioneel automatisch starten, en verwijderen via Instellingen → Apps. De app draait alleen op 127.0.0.1. Op je eigen pc is geen wachtwoord nodig (lokale modus: alleen loopback, Host-controle tegen DNS-rebinding). Gegevens staan in `%LOCALAPPDATA%\ForexNexus`. Bouwen: `makensis -DSTAGE=<map> windows/installer.nsi` (zie `windows/`).
+
 ## Eerste installatie (gebruiker)
 
 1. Open de app-URL en meld je aan met het wachtwoord.
@@ -45,7 +49,7 @@ cd forexnexus
 npm ci
 FNX_ACCESS_PASSWORD='lang-wachtwoord' FNX_MASTER_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")" npm start
 # http://localhost:8080
-npm test                 # 51 tests
+npm test                 # 56 tests
 npm run backtest         # rapporten in reports/
 ```
 

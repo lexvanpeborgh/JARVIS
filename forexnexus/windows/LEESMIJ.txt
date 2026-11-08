@@ -5,9 +5,8 @@ ForexNexus Alpha voor Windows
    (niet direct vanuit de zip starten).
 2. Dubbelklik op "Snelkoppelingen-maken.cmd" (eenmalig). Er komt een snelkoppeling
    "ForexNexus Alpha" op je bureaublad en in het Startmenu.
-3. Start "ForexNexus Alpha". De eerste keer opent Kladblok met je eenmalige
-   wachtwoord; daarmee meld je je aan. Het app-venster opent in Microsoft Edge
-   (app-modus, zonder adresbalk).
+3. Start "ForexNexus Alpha". Het app-venster opent in Microsoft Edge
+   (app-modus, zonder adresbalk). Op je eigen pc is geen wachtwoord nodig.
 
 Goed om te weten
 - Zonder koppeling draait de app in DEMO-modus (synthetische data, geen meldingen).

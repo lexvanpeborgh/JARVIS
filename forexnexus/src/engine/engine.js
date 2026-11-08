@@ -20,7 +20,7 @@ import { getInstrument, INSTRUMENTS, moneyPerUnit, fmtPrice } from '../core/inst
 import { marketStatus } from '../core/sessions.js';
 import { validateCandles } from '../core/quality.js';
 import { TF_MS, floorTf, nextBoundary, iso } from '../core/time.js';
-import { slippagePrice, positionSize } from '../core/risk.js';
+import { slippagePrice, positionSize, buildPlan } from '../core/risk.js';
 import { newsCheck } from '../core/news.js';
 import { reason } from '../core/reasons.js';
 import { heartbeat, upsertCandles, loadCandles, setState, getState, acquireLease, releaseLease, lastHeartbeat } from '../store/db.js';
@@ -166,9 +166,12 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
     const ds = liveDatasetId(cfg);
     const expectedLast = boundary - TF_MS[tf];
     let fetched = null; let tries = 0;
+    // eerste keer ruime historie (grafiek + historische signalen), daarna alleen het recente stuk
+    const have = db.get('SELECT COUNT(*) n FROM candles WHERE dataset_id = ? AND instrument = ? AND timeframe = ?', ds, id, tf).n;
+    const count = have < 1500 ? 2000 : 300;
     for (;;) {
       tries += 1;
-      fetched = await provider.fetchCandles(provider.id === 'oanda' ? inst.providers.oanda : id, tf, { count: 400, to: boundary });
+      fetched = await provider.fetchCandles(provider.id === 'oanda' ? inst.providers.oanda : id, tf, { count, to: boundary });
       const lastComplete = [...fetched].reverse().find(c => c.complete);
       if (!mkt.open || (lastComplete && lastComplete.t >= expectedLast) || tries > (cfg.scheduler?.candleRetries ?? 3)) break;
       await sleep((cfg.scheduler?.candleRetrySec ?? 10) * 1000);
@@ -176,7 +179,7 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
     const v = validateCandles(fetched.filter(c => c.complete), { inst, tf, maxSpreadPrice: inst.pip ? inst.pip * 20 : null });
     const up = upsertCandles(db, ds, id, tf, v.clean, clock());
     if (v.issues.length) db.run('INSERT INTO data_quality (at, dataset_id, instrument, type, detail) VALUES (?,?,?,?,?)', clock(), ds, id, 'SCAN_VALIDATION', JSON.stringify(v.report));
-    const candles = loadCandles(db, ds, id, tf, { limit: 600 });
+    const candles = loadCandles(db, ds, id, tf, { limit: 2000 });
     const last = candles.at(-1);
     const out = { instrument: id, market: mkt.reason, lastCandle: last ? iso(last.t) : null, stored: up, evaluations: [] };
     if (!last) { out.state = 'NO_DATA'; return out; }
@@ -314,7 +317,7 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
     if (inv) return reject(inv.code, inv.text);
     let size = units;
     if (size == null) {
-      const ps = positionSize({ inst, plan: snap.plan, balance: cfg.risk.balance, riskPct: cfg.risk.riskPct, riskMoney: cfg.risk.riskMoney, accountCcy: cfg.risk.accountCcy, rates: currentRates(), costs: cfg.costs, costBufferPct: cfg.risk.costBufferPct });
+      const ps = positionSize({ inst, plan: snap.plan, ...paperBudget(), rates: currentRates(), costs: cfg.costs });
       if (!ps.ok) return reject(ps.reason, ps.text);
       if (!ps.size) return reject('SIZE_ZERO', ps.warnings.join(' '));
       size = ps.size;
@@ -335,6 +338,71 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
     return { ok: true, positionId: posId, orderId, fill, units: size };
   }
 
+  /** Papersaldo = gekozen startbedrag + gerealiseerd paperresultaat. */
+  function paperBudget() {
+    const realized = db.get("SELECT COALESCE(SUM(realized_money), 0) s FROM paper_positions WHERE status = 'CLOSED'").s || 0;
+    return { balance: (cfg.paper.balance || 0) + realized, riskPct: cfg.paper.riskPct, accountCcy: cfg.paper.currency || 'EUR' };
+  }
+
+  /** Handmatige paperorder vanuit het orderpaneel (zonder signaal). */
+  function openManualPaper({ instrument, direction, units = null, sl = null, tp = null }) {
+    const inst = getInstrument(instrument);
+    const now = clock();
+    const orderId = `po_${randomUUID().slice(0, 12)}`;
+    const q = hub.gatingQuote(instrument, now, cfg.limits.maxQuoteAgeSec);
+    const reject = (code, text) => {
+      db.run('INSERT INTO paper_orders (id, signal_id, origin, instrument, direction, requested_at, status, reason, quote) VALUES (?,?,?,?,?,?,?,?,?)', orderId, null, 'TICKET', instrument, direction, now, 'REJECTED', `${code}: ${text}`, JSON.stringify(q));
+      return { ok: false, code, text, orderId };
+    };
+    const mkt = marketStatus(inst, now, { fxHolidays: cfg.fxHolidays });
+    if (!mkt.open) return reject('MARKET_CLOSED', mkt.text);
+    if (!q || !['LIVE', 'UNCHANGED'].includes(q.freshness)) return reject('QUOTE_STALE', 'Geen actuele quote');
+    const open = db.get("SELECT COUNT(*) n FROM paper_positions WHERE status = 'OPEN'").n;
+    if (cfg.risk.maxPositions && open >= cfg.risk.maxPositions) return reject('MAX_POSITIONS', `Maximaal ${cfg.risk.maxPositions} gelijktijdige posities`);
+    const long = direction === 'LONG';
+    const slip = slippagePrice(inst, cfg.costs);
+    const fill = long ? q.ask + slip : q.bid - slip;
+    // standaard SL/TP uit ATR14 van de laatste gesloten candles (1,5 × / 3 × ATR)
+    if (sl == null || tp == null) {
+      const ev = db.get('SELECT decision FROM evaluations WHERE instrument = ? ORDER BY candle_t DESC LIMIT 1', instrument);
+      const atr = ev ? JSON.parse(ev.decision).snapshot?.indicators?.atr : null;
+      if (!atr) return reject('ATR_MISSING', 'Geef SL en TP op (ATR nog niet beschikbaar)');
+      if (sl == null) sl = long ? fill - 1.5 * atr : fill + 1.5 * atr;
+      if (tp == null) tp = long ? fill + 3 * atr : fill - 3 * atr;
+    }
+    const plan = buildPlan({ inst, direction, entry: fill, sl, tp2: tp, costs: cfg.costs, accountCcy: cfg.paper.currency, rates: currentRates() });
+    if (!plan.valid) return reject('INVALID_LEVELS', plan.errors.join(', '));
+    let size = units;
+    if (size == null) {
+      const ps = positionSize({ inst, plan, ...paperBudget(), rates: currentRates(), costs: cfg.costs });
+      if (!ps.ok) return reject(ps.reason, ps.text);
+      if (!ps.size) return reject('SIZE_ZERO', ps.warnings.join(' '));
+      size = ps.size;
+    }
+    const posId = `pp_${randomUUID().slice(0, 12)}`;
+    db.tx(() => {
+      db.run('INSERT INTO paper_orders (id, signal_id, origin, instrument, direction, requested_at, status, units, fill_price, fill_time, quote) VALUES (?,?,?,?,?,?,?,?,?,?,?)', orderId, null, 'TICKET', instrument, direction, now, 'ACCEPTED', size, fill, now, JSON.stringify(q));
+      db.run('INSERT INTO paper_positions (id, order_id, signal_id, origin, instrument, direction, units, entry, sl, tp, status, opened_at, costs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', posId, orderId, null, 'TICKET', instrument, direction, size, fill, plan.sl, plan.tp2, 'OPEN', now, JSON.stringify({ slippagePerSide: cfg.costs.slippagePerSide, spread: q.ask - q.bid, dataKind: q.kind }));
+      db.run('INSERT INTO paper_events (position_id, order_id, at, type, detail) VALUES (?,?,?,?,?)', posId, orderId, now, 'FILL', JSON.stringify({ price: fill, bid: q.bid, ask: q.ask }));
+    });
+    emit('paper', { positionId: posId });
+    return { ok: true, positionId: posId, fill, units: size, sl: plan.sl, tp: plan.tp2 };
+  }
+
+  function paperSummary() {
+    const b = paperBudget();
+    const rates = currentRates();
+    let unrealized = 0;
+    for (const p of db.all("SELECT * FROM paper_positions WHERE status = 'OPEN'")) {
+      const q = hub.get(p.instrument); if (!q) continue;
+      const inst = getInstrument(p.instrument);
+      const px = p.direction === 'LONG' ? q.bid : q.ask;
+      const m = moneyPerUnit(inst, p.direction === 'LONG' ? px - p.entry : p.entry - px, b.accountCcy, rates);
+      if (m != null) unrealized += m * p.units;
+    }
+    return { start: cfg.paper.balance, balance: b.balance, unrealized, equity: b.balance + unrealized, currency: b.accountCcy, riskPct: cfg.paper.riskPct };
+  }
+
   function closePaper(posId, exitPx, why) {
     const p = db.get("SELECT * FROM paper_positions WHERE id = ? AND status = 'OPEN'", posId);
     if (!p) return { ok: false, code: 'NOT_OPEN' };
@@ -343,7 +411,7 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
     const risk = Math.abs(p.entry - p.sl);
     const pnlPrice = long ? exitPx - p.entry : p.entry - exitPx;
     const r = risk > 0 ? pnlPrice / risk : null;
-    const money = moneyPerUnit(inst, pnlPrice, cfg.risk.accountCcy, currentRates());
+    const money = moneyPerUnit(inst, pnlPrice, cfg.paper.currency || cfg.risk.accountCcy, currentRates());
     const now = clock();
     db.tx(() => {
       db.run("UPDATE paper_positions SET status='CLOSED', closed_at=?, exit_price=?, exit_reason=?, realized_r=?, realized_money=? WHERE id=?", now, exitPx, why, r, money == null ? null : money * p.units, posId);
@@ -452,7 +520,7 @@ export function createEngine({ db, secrets, log = console, clock = () => Date.no
   if (autoStart) start();
 
   return {
-    hub, owner, start, stop, restart, scanAll, openPaper, closePaper, currentRates,
+    hub, owner, start, stop, restart, scanAll, openPaper, openManualPaper, paperSummary, closePaper, currentRates,
     get leader() { return leader; },
     get provider() { return provider; },
     get nextScanAt() { return nextScanAt; },

@@ -1,4 +1,5 @@
 # ForexNexus Alpha — Windows-starter. Start de engine (indien nodig) en opent het app-venster.
+# Lokale modus: alleen bereikbaar vanaf deze pc (127.0.0.1), geen wachtwoord nodig.
 $ErrorActionPreference = 'Stop'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Data = Join-Path $env:LOCALAPPDATA 'ForexNexus'
@@ -9,7 +10,7 @@ New-Item -ItemType Directory -Force -Path $Data | Out-Null
 function Test-Engine { try { Invoke-WebRequest -UseBasicParsing "$($Url)api/health" -TimeoutSec 2 | Out-Null; $true } catch { $false } }
 
 if (-not (Test-Engine)) {
-  $env:FNX_DATA_DIR = $Data; $env:FNX_HOST = '127.0.0.1'; $env:PORT = "$Port"
+  $env:FNX_DATA_DIR = $Data; $env:FNX_HOST = '127.0.0.1'; $env:PORT = "$Port"; $env:FNX_LOCAL_APP = '1'
   $log = Join-Path $Data 'engine.log'
   Start-Process -FilePath (Join-Path $Here 'runtime\node.exe') `
     -ArgumentList '--no-warnings', "`"$(Join-Path $Here 'app\src\server\main.js')`"" `
@@ -20,13 +21,6 @@ if (-not (Test-Engine)) {
     [System.Windows.MessageBox]::Show("De ForexNexus-engine startte niet. Zie $Data\engine-fouten.log", 'ForexNexus Alpha') | Out-Null
     exit 1
   }
-}
-
-# Eerste keer: toon het eenmalige wachtwoord
-$pw = Join-Path $Data 'INITIAL_PASSWORD.txt'; $shown = Join-Path $Data '.wachtwoord-getoond'
-if ((Test-Path $pw) -and -not (Test-Path $shown)) {
-  Start-Process notepad.exe -ArgumentList "`"$pw`""
-  New-Item -ItemType File -Path $shown | Out-Null
 }
 
 # App-venster (Edge in app-modus), anders de standaardbrowser

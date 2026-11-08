@@ -49,6 +49,15 @@ ervóór). De testfixture die de regel wél triggert, heeft een koersstap van
 wordt **niet** stilzwijgend naar eerdere candles verschoven. Dat zou een nieuwe
 strategieversie zijn met een eigen test.
 
+## EMA_RSI_WINDOW v1.0.0 — standaard in de grafiek (nieuwe versie)
+
+Een **nieuwe, afzonderlijke** versie. De legacy-baseline is ongewijzigd.
+
+- **BUY:** RSI14 < 30 op minstens één van de laatste 10 gesloten candles (incl. de signaalcandle) · EMA9 ≤ EMA21 op de vorige candle · EMA9 > EMA21 op de signaalcandle. **SELL** gespiegeld (RSI14 > 70).
+- **Volume:** geen voorwaarde.
+- **Niveaus:** SL = entry ∓ 1,5 × ATR14 · TP1 = ± 1,5 × ATR14 (observatie) · TP2 = ± 3 × ATR14 (exit). Nominale bruto RR = 2,0, na conservatieve tickafronding iets lager (bijv. 1,97).
+- Op synthetische data: 11–15 trades per halfjaar per paar. Geen historisch bewijs; met echte data opnieuw evalueren.
+
 ## LEGACY_EMA_RSI_VOL_ATR4 v1.0.0
 
 Identiek aan de baseline, maar TP2 = 4 × ATR14 (nominale bruto RR TP2 = 2,00).

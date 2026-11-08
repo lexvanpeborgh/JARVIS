@@ -2,6 +2,7 @@ import { h, render } from 'preact';
 import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 import htm from 'htm';
 import { api, setCsrf, connectStream, cachePut, cacheGet, fmtTime, fmtUtc, ago, nf, px, setTz, STATE_UI, FRESH_UI } from './api.js';
+import { TradeView } from './trade.js';
 import { InstrumentView, SignalsView, SignalDetail, RiskView, MacroView, BacktestView, BacktestDetail, ReplayView, PaperView } from './views.js';
 
 export const html = htm.bind(h);
@@ -56,10 +57,10 @@ function Login({ onDone }) {
 
 // ---------- shell ----------
 const NAV = [
-  ['/', '📈', 'Markt'], ['/signals', '🔔', 'Signalen'], ['/risk', '🛡', 'Risicoplan'], ['/macro', '🗓', 'Macro & nieuws'],
+  ['/', '📈', 'Handelen'], ['/markt', '🗂', 'Overzicht'], ['/signals', '🔔', 'Signalen'], ['/risk', '🛡', 'Risicoplan'], ['/macro', '🗓', 'Macro & nieuws'],
   ['/backtest', '🧪', 'Backtestlab'], ['/replay', '⏯', 'Replay'], ['/paper', '📒', 'Paper & dagboek'], ['/status', '🩺', 'Engine & data'], ['/settings', '⚙️', 'Verbindingen'],
 ];
-const BOTTOM = [['/', '📈', 'Markt'], ['/signals', '🔔', 'Signalen'], ['/backtest', '🧪', 'Tests'], ['/status', '🩺', 'Status'], ['/settings', '⚙️', 'Meer']];
+const BOTTOM = [['/', '📈', 'Handelen'], ['/signals', '🔔', 'Signalen'], ['/paper', '📒', 'Paper'], ['/status', '🩺', 'Status'], ['/settings', '⚙️', 'Meer']];
 
 function Shell({ children, route }) {
   const s = useStore();
@@ -68,11 +69,10 @@ function Shell({ children, route }) {
     <nav class="nav">
       <div class="brand"><img src="/icons/icon-192.png" alt="" />ForexNexus Alpha</div>
       ${NAV.map(([p, ic, t]) => html`<a href=${`#${p}`} class=${active(p) ? 'active' : ''}><span aria-hidden="true">${ic}</span>${t}</a>`)}
-      <div style="padding:14px 10px" class="small faint">Geen automatische orders. Analyse, geen garantie.</div>
+      <div style="padding:12px 10px" class="small faint">Geen echte orders · papertrading gesimuleerd</div>
     </nav>
     <main class="main">
       ${!s.online && html`<div class="banner offline">OFFLINE — server niet bereikbaar. Getoonde waarden zijn de laatst ontvangen gegevens met hun oorspronkelijke tijdstempel; niets hiervan is live.</div>`}
-      ${s.status?.mode === 'DEMO' && html`<div class="banner demo">DEMO-modus: alle koersen en signalen zijn synthetisch. Er worden geen live entrymeldingen verstuurd. Koppel OANDA bij Verbindingen voor echte data.</div>`}
       ${children}
     </main>
     <nav class="bottomnav">${BOTTOM.map(([p, ic, t]) => html`<a href=${`#${p}`} class=${active(p) ? 'active' : ''}><span aria-hidden="true">${ic}</span><span>${t}</span></a>`)}</nav>
@@ -280,8 +280,13 @@ function SettingsView() {
         <label class="f">of risicobedrag<input class="i" type="number" value=${cfg.risk.riskMoney ?? ''} placeholder="niet ingevuld" onInput=${e => set('risk.riskMoney', n(e.target.value))} /></label>
         <label class="f">Max. gelijktijdige paperposities<input class="i" type="number" value=${cfg.risk.maxPositions ?? ''} onInput=${e => set('risk.maxPositions', n(e.target.value))} /></label>
       </div>
-      <p class="small muted">Zonder ingevulde gegevens wordt geen positiegrootte berekend.</p>
-      <button class="btn primary" onClick=${() => save(['risk'])}>Opslaan</button>
+      <div class="formgrid">
+        <label class="f">Papersaldo (start)<input class="i" type="number" value=${cfg.paper.balance} onInput=${e => set('paper.balance', n(e.target.value))} /></label>
+        <label class="f">Papervaluta<select class="i" value=${cfg.paper.currency} onChange=${e => set('paper.currency', e.target.value)}>${['EUR', 'USD', 'GBP'].map(c => html`<option>${c}</option>`)}</select></label>
+        <label class="f">Paper-risico per trade (%)<input class="i" type="number" step="0.1" value=${cfg.paper.riskPct} onInput=${e => set('paper.riskPct', n(e.target.value))} /></label>
+      </div>
+      <p class="small muted">Het papersaldo is een zelfgekozen oefenbedrag. Voor de echte risicocalculator vul je hierboven je eigen gegevens in.</p>
+      <button class="btn primary" onClick=${() => save(['risk', 'paper'])}>Opslaan</button>
     </div>
     <div class="card stack"><h2>Weergave, AI-uitleg en app-link</h2>
       <div class="formgrid">
@@ -326,8 +331,10 @@ function App() {
   let view;
   const m = route.match(/^\/(\w+)(?:\/([^?]+))?/);
   const [, seg, arg] = m || [];
-  if (route === '/' || !seg) view = html`<${Monitor} />`;
-  else if (seg === 'i') view = html`<${InstrumentView} id=${arg} />`;
+  if (route === '/' || !seg) view = html`<${TradeView} />`;
+  else if (seg === 'i') view = html`<${TradeView} id=${arg} />`;
+  else if (seg === 'detail') view = html`<${InstrumentView} id=${arg} />`;
+  else if (seg === 'markt') view = html`<${Monitor} />`;
   else if (seg === 'signals') view = html`<${SignalsView} />`;
   else if (seg === 'signal') view = html`<${SignalDetail} id=${arg} />`;
   else if (seg === 'risk') view = html`<${RiskView} />`;

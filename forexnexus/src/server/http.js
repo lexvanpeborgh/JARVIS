@@ -94,6 +94,22 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
     try { const j = JSON.parse(b.toString('utf8')); if (typeof j !== 'object' || j === null || Array.isArray(j)) throw new Error(); return j; } catch { throw new HttpError(400, 'Ongeldige JSON'); }
   }
 
+  /**
+   * Lokale desktopmodus (FNX_LOCAL_APP=1, alleen gebonden aan 127.0.0.1): geen wachtwoord nodig
+   * voor verzoeken van deze pc zelf. Host-header moet loopback zijn (tegen DNS-rebinding) en
+   * een eventuele Origin moet overeenkomen.
+   */
+  function localAppRequest(req) {
+    if (env.FNX_LOCAL_APP !== '1' || env.FNX_HOST !== '127.0.0.1') return false;
+    const ip = req.socket.remoteAddress || '';
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip)) return false;
+    const host = String(req.headers.host || '');
+    if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host)) return false;
+    const origin = req.headers.origin;
+    if (origin && new URL(origin).host !== host) return false;
+    return true;
+  }
+
   function auth(req) {
     const sid = parseCookies(req.headers.cookie).fnx_sid;
     const s = getSession(db, sid);
@@ -121,7 +137,15 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
 
   // ---------- openbaar ----------
   route('GET', '/api/health', () => ({ ok: true, service: 'forexnexus-alpha', time: Date.now() }), { public: true });
-  route('GET', '/api/session', (req) => { const a = auth(req); return { authenticated: !!a, csrf: a?.session.csrf || null, passwordConfigured: !!passwordRef() }; }, { public: true });
+  route('GET', '/api/session', (req, res) => {
+    let a = auth(req);
+    if (!a && localAppRequest(req)) {
+      const s = createSession(db);
+      res.setHeader('set-cookie', `fnx_sid=${s.id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${30 * 86400}`);
+      return { authenticated: true, csrf: s.csrf, localApp: true };
+    }
+    return { authenticated: !!a, csrf: a?.session.csrf || null, passwordConfigured: !!passwordRef(), localApp: false };
+  }, { public: true });
   route('POST', '/api/login', async (req, res) => {
     const ip = req.socket.remoteAddress || 'x';
     const f = loginFails.get(ip) || { n: 0, until: 0 };
@@ -174,7 +198,8 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
     return cfg.watchlist.map(id => {
       const evals = cfg.strategies.enabled.map(sid => db.get('SELECT state, direction, candle_t, evaluated_at, blockers, strategy FROM evaluations WHERE instrument = ? AND strategy = ? ORDER BY candle_t DESC LIMIT 1', id, sid)).filter(Boolean).map(e => ({ ...e, blockers: JSON.parse(e.blockers || '[]') }));
       const q = engine?.hub.get(id) || null;
-      return { instrument: id, display: INSTRUMENTS[id].display, quote: q, freshness: engine?.hub.freshness(id, Date.now(), cfg.limits.maxQuoteAgeSec) || null, evaluations: evals, activeSignals: db.all("SELECT id, direction, strategy, status, expires_at FROM signals WHERE instrument = ? AND status = 'ACTIVE'", id) };
+      const lc = db.get('SELECT c, t FROM candles WHERE instrument = ? AND timeframe = ? ORDER BY t DESC LIMIT 1', id, 'M5');
+      return { instrument: id, display: INSTRUMENTS[id].display, quote: q, lastClose: lc ? { price: lc.c, t: lc.t } : null, freshness: engine?.hub.freshness(id, Date.now(), cfg.limits.maxQuoteAgeSec) || null, evaluations: evals, activeSignals: db.all("SELECT id, direction, strategy, status, expires_at FROM signals WHERE instrument = ? AND status = 'ACTIVE'", id) };
     });
   });
   route('POST', '/api/explain', async (req) => {
@@ -273,9 +298,38 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
     const { name, value } = await readJson(req, 5000);
     if (!SECRET_NAMES.includes(name)) throw new HttpError(400, 'Onbekend secret');
     const changed = secrets.set(name, typeof value === 'string' ? value.trim() : '');
-    if (changed && name === 'oanda.token') await engine?.restart();
-    return { ok: true, changed, note: changed ? 'Opgeslagen (versleuteld).' : 'Leeg veld: bestaande waarde ongewijzigd.', status: publicConfig().secrets };
+    let link = null;
+    if (changed && name === 'oanda.token') {
+      link = await autoLinkOanda();
+      await engine?.restart();
+    }
+    return { ok: true, changed, link, note: changed ? 'Opgeslagen (versleuteld).' : 'Leeg veld: bestaande waarde ongewijzigd.', status: publicConfig().secrets };
   });
+  /** Na het plakken van een token: practice of live bepalen, account-ID ophalen, provider inschakelen. */
+  async function autoLinkOanda() {
+    const token = secrets.get('oanda.token');
+    const cfg = loadConfig(db);
+    for (const envName of [cfg.provider.env, cfg.provider.env === 'practice' ? 'live' : 'practice']) {
+      try {
+        const prov = createOandaProvider({ token, accountId: cfg.provider.accountId || 'x', env: envName, fetchImpl });
+        const r = await prov.testConnection().catch(e => ({ ok: false, code: e.code, text: e.message }));
+        if (r.code === 'UNAUTHORIZED') continue;
+        // account-ID automatisch: eerste account dat het token kan zien
+        let accountId = cfg.provider.accountId;
+        if (!r.accountFound) {
+          const res = await fetchImpl(`${envName === 'live' ? 'https://api-fxtrade.oanda.com' : 'https://api-fxpractice.oanda.com'}/v3/accounts`, { headers: { authorization: `Bearer ${token}` } });
+          const j = await res.json().catch(() => ({}));
+          accountId = j.accounts?.[0]?.id || null;
+        }
+        if (!accountId) return { ok: false, text: 'Token geldig, maar geen account gevonden.' };
+        saveConfig(db, { provider: { name: 'oanda', env: envName, accountId } });
+        engine?.reloadConfig();
+        return { ok: true, env: envName, accountId, text: `Gekoppeld met OANDA ${envName === 'live' ? 'live' : 'practice'} (account ${accountId}).` };
+      } catch (e) { return { ok: false, text: redact(e.message, [token]) }; }
+    }
+    return { ok: false, text: 'OANDA weigert dit token (practice én live geprobeerd).' };
+  }
+
   route('POST', '/api/secrets/delete', async (req) => {
     const { name, confirm } = await readJson(req, 1000);
     if (!SECRET_NAMES.includes(name) || confirm !== true) throw new HttpError(400, 'Bevestiging vereist');
@@ -351,7 +405,12 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
   route('GET', '/api/replay', (req, res, a, q) => replayStep(db, { datasetId: str(q.get('datasetId'), 200), strategyId: stratId(q.get('strategy')), cursor: num(q.get('cursor'), { min: 0, max: 5e6 }), window: num(q.get('window'), { min: 50, max: 1500 }) || 300 }));
 
   // ---------- paper ----------
-  route('GET', '/api/paper', () => ({ positions: db.all('SELECT * FROM paper_positions ORDER BY opened_at DESC LIMIT 200'), orders: db.all('SELECT * FROM paper_orders ORDER BY requested_at DESC LIMIT 200'), notes: db.all('SELECT * FROM journal_notes ORDER BY at DESC LIMIT 200'), events: db.all('SELECT * FROM paper_events ORDER BY at DESC LIMIT 200') }));
+  route('POST', '/api/paper/order', async (req) => {
+    const b = await readJson(req, 1000);
+    if (!engine) throw new HttpError(503, 'Engine niet actief');
+    return engine.openManualPaper({ instrument: instId(b.instrument), direction: str(b.direction, 5, /^(LONG|SHORT)$/), units: num(b.units, { min: 1, max: 1e9 }), sl: num(b.sl, { min: 0 }), tp: num(b.tp, { min: 0 }) });
+  });
+  route('GET', '/api/paper', () => ({ summary: engine?.paperSummary() || null, positions: db.all('SELECT * FROM paper_positions ORDER BY opened_at DESC LIMIT 200'), orders: db.all('SELECT * FROM paper_orders ORDER BY requested_at DESC LIMIT 200'), notes: db.all('SELECT * FROM journal_notes ORDER BY at DESC LIMIT 200'), events: db.all('SELECT * FROM paper_events ORDER BY at DESC LIMIT 200') }));
   route('POST', '/api/paper/open', async (req) => { const b = await readJson(req, 1000); if (!engine) throw new HttpError(503, 'Engine niet actief'); return engine.openPaper(str(b.signalId, 40), 'MANUAL', num(b.units, { min: 1, max: 1e9 })); });
   route('POST', '/api/paper/:id/close', async (req, res, a, q, p) => {
     const pos = db.get("SELECT * FROM paper_positions WHERE id = ? AND status = 'OPEN'", str(p.id, 40));
