@@ -49,8 +49,7 @@ npm test                 # 51 tests
 npm run backtest         # rapporten in reports/
 ```
 
-Container: `Dockerfile` (volume `/data`). Voorbeeld voor Fly.io:
-`deploy/fly.toml.example` (`auto_stop_machines = "off"`, `min_machines_running = 1`).
+Container: `Dockerfile` (volume `/data`). **Fly.io:** `fly.toml` + workflow `.github/workflows/forexnexus-fly.yml`; stappenplan in [docs/DEPLOY-FLY.md](docs/DEPLOY-FLY.md).
 Optionele externe watchdog: `deploy/github-watchdog.yml.example`. Runtime secrets: zie
 `.env.example`. Achter een uitgaande proxy zet je `NODE_USE_ENV_PROXY=1`.
 Controleer actuele hostingprijzen voordat je een abonnement activeert.

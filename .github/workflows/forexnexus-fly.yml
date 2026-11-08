@@ -1,0 +1,67 @@
+name: ForexNexus → Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      setup:
+        description: 'Eerste installatie: app, volume en secrets aanmaken'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ['forexnexus/**', '.github/workflows/forexnexus-fly.yml']
+
+concurrency:
+  group: forexnexus-fly
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: forexnexus } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: forexnexus/package-lock.json }
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: forexnexus } }
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FNX_ACCESS_PASSWORD: ${{ secrets.FNX_ACCESS_PASSWORD }}
+      APP: ${{ vars.FLY_APP_NAME }}
+    steps:
+      - name: Configuratie controleren
+        run: |
+          missing=""
+          [ -n "$FLY_API_TOKEN" ] || missing="$missing secret FLY_API_TOKEN;"
+          [ -n "$FNX_ACCESS_PASSWORD" ] || missing="$missing secret FNX_ACCESS_PASSWORD;"
+          [ -n "$APP" ] || missing="$missing variable FLY_APP_NAME;"
+          if [ -n "$missing" ]; then echo "::error::Ontbreekt in GitHub-instellingen:$missing"; exit 1; fi
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Eerste installatie (app, volume, secrets)
+        if: ${{ inputs.setup }}
+        run: |
+          flyctl apps create "$APP" --org personal || echo "App bestaat al; doorgaan."
+          if ! flyctl volumes list -a "$APP" | grep -q fnx_data; then
+            flyctl volumes create fnx_data --region ams --size 1 -a "$APP" --yes
+          fi
+          if ! flyctl secrets list -a "$APP" | grep -q FNX_MASTER_KEY; then
+            flyctl secrets set FNX_MASTER_KEY="$(openssl rand -base64 32)" -a "$APP" --stage
+          fi
+          flyctl secrets set FNX_ACCESS_PASSWORD="$FNX_ACCESS_PASSWORD" -a "$APP" --stage
+      - name: Deploy
+        run: flyctl deploy --remote-only --ha=false -a "$APP"
+      - name: Controle na deploy
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "https://$APP.fly.dev/api/health"; then echo; echo "Online: https://$APP.fly.dev"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::Health check faalde"; exit 1

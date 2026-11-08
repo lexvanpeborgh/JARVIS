@@ -1,0 +1,35 @@
+# Fly.io-configuratie voor ForexNexus Alpha.
+# De appnaam wordt bij deploy meegegeven (-a), zodat je hem zelf kunt kiezen.
+primary_region = "ams"   # Amsterdam, dichtst bij België
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  FNX_DATA_DIR = "/data"
+  FNX_COOKIE_SECURE = "1"
+  PORT = "8080"
+
+# Persistente schijf voor database, versleutelde secrets en historie.
+[[mounts]]
+  source = "fnx_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # De engine moet blijven draaien als de browser dicht is: nooit automatisch stoppen.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
