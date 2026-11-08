@@ -29,6 +29,10 @@ if (!process.env.FNX_ACCESS_PASSWORD && !process.env.FNX_ACCESS_PASSWORD_HASH &&
 const engine = createEngine({ db, secrets, log: console });
 const { server } = createApp({ db, engine, secrets, log: console });
 const HOST = process.env.FNX_HOST || undefined; // Windows-app: 127.0.0.1 (alleen deze pc)
+server.on('error', e => {
+  if (e.code === 'EADDRINUSE') { console.log(`[forexnexus] draait al op poort ${PORT}; open http://127.0.0.1:${PORT}/`); process.exit(0); }
+  console.error('[forexnexus] serverfout:', e.message); process.exit(1);
+});
 server.listen(PORT, HOST, () => console.log(`[forexnexus] luistert op ${HOST || 'alle interfaces'}:${PORT}`));
 
 async function shutdown(sig) {

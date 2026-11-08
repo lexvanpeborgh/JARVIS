@@ -1,21 +1,22 @@
-ForexNexus Alpha voor Windows
-=============================
+ForexNexus Alpha 1.1 voor Windows
+=================================
 
-1. Pak dit zip-bestand uit naar een vaste map, bijvoorbeeld C:\ForexNexus
-   (niet direct vanuit de zip starten).
-2. Dubbelklik op "Snelkoppelingen-maken.cmd" (eenmalig). Er komt een snelkoppeling
-   "ForexNexus Alpha" op je bureaublad en in het Startmenu.
-3. Start "ForexNexus Alpha". Het app-venster opent in Microsoft Edge
-   (app-modus, zonder adresbalk). Op je eigen pc is geen wachtwoord nodig.
+1. Klik met de rechtermuisknop op het zip-bestand > "Alles uitpakken..."
+   en kies bijvoorbeeld C:\ForexNexus. (Niet starten vanuit de zip zelf!)
+2. Open de uitgepakte map ForexNexus en dubbelklik op "ForexNexus.cmd".
+   - Er opent een zwart venster: dat is de engine. Laat het open.
+   - Na enkele seconden opent de app in je browser (http://127.0.0.1:8737/).
+   - Waarschuwt Windows? Kies "Meer info" > "Toch uitvoeren".
+3. Optioneel: dubbelklik "Snelkoppelingen-maken.cmd" voor een snelkoppeling op
+   het bureaublad. In Edge kun je de pagina ook als app installeren:
+   menu (...) > Apps > "Deze site als app installeren".
 
 Goed om te weten
-- Zonder koppeling draait de app in DEMO-modus (synthetische data, geen meldingen).
-  Koppel OANDA en Telegram bij "Verbindingen" in de app.
-- De engine draait op de achtergrond, ook als je het venster sluit, maar ALLEEN
-  zolang deze pc aanstaat. Voor 24/7-bewaking: zie docs/DEPLOY-FLY.md (Fly.io).
-- De app is alleen bereikbaar vanaf deze pc (127.0.0.1:8737).
-- Gegevens en versleutelde sleutels: %LOCALAPPDATA%\ForexNexus
-- Stoppen: "ForexNexus-stoppen.cmd".
-- Windows SmartScreen kan waarschuwen omdat het pakket niet digitaal ondertekend
-  is: kies "Meer info" > "Toch uitvoeren".
-- Er worden nooit orders geplaatst.
+- Geen wachtwoord nodig op je eigen pc; de app is alleen bereikbaar vanaf deze pc.
+- Zonder koppeling: DEMO (synthetische koersen). Plak bovenaan je OANDA-token
+  voor echte realtime koersen.
+- De engine bewaakt alleen zolang het zwarte venster open is en de pc aanstaat.
+- Stoppen: sluit het zwarte venster (of "ForexNexus-stoppen.cmd").
+- Opent er niets? Kijk wat er in het zwarte venster staat en stuur dat door.
+- Gegevens: %LOCALAPPDATA%\ForexNexus
+- Er worden nooit echte orders geplaatst.
