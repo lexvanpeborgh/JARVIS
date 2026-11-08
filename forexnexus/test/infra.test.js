@@ -10,6 +10,8 @@ import { engineStatus, countMissedScans } from '../src/engine/status.js';
 import { parseFF } from '../src/calendar/calendar.js';
 import { parseCandle, parsePrice } from '../src/data/providers/oanda.js';
 import { QuoteHub } from '../src/engine/quotes.js';
+import net from 'node:net';
+const require_net = () => net;
 
 const TOKEN = '123456789:AAFakeTokenForTestsOnly_abcdefghijk';
 const jsonRes = (status, body) => ({ status, ok: status < 300, json: async () => body, text: async () => JSON.stringify(body), headers: new Map() });
@@ -186,6 +188,10 @@ test('API: auth vereist, CSRF verplicht, geen secrets in responses, strikte vali
     assert.ok(!html.includes('AAFakeToken'));
     const csp = (await fetch(`${base}/`)).headers.get('content-security-policy');
     assert.match(csp, /script-src 'self' 'sha256-/); assert.ok(!/script-src[^;]*unsafe-inline/.test(csp));
+    // vreemde paden laten de server niet crashen
+    const raw = await new Promise(r => { const sock = require_net().connect(Number(new URL(base).port), '127.0.0.1', () => sock.write('GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n')); let b = ''; sock.on('data', d => { b += d; }); sock.on('close', () => r(b)); sock.on('error', () => r(b)); });
+    assert.match(raw, /^HTTP\/1\.1 (200|400|404)/);
+    assert.equal((await fetch(`${base}/api/health`)).status, 200);
     const w = await fetch(`${base}/api/worker/tick`, { method: 'POST', body: '{}', headers: signWorkerRequest('fout', { method: 'POST', path: '/api/worker/tick', body: '{}' }) });
     assert.equal(w.status, 401);
     const w2 = await fetch(`${base}/api/worker/tick`, { method: 'POST', body: '{}', headers: signWorkerRequest('ws', { method: 'POST', path: '/api/worker/tick', body: '{}' }) });

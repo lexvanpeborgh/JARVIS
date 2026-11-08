@@ -6,11 +6,19 @@ set "FNX_HOST=127.0.0.1"
 set "PORT=8737"
 set "FNX_LOCAL_APP=1"
 if not exist "%FNX_DATA_DIR%" mkdir "%FNX_DATA_DIR%"
+
 if not exist "%~dp0runtime\node.exe" (
-  echo FOUT: runtime\node.exe niet gevonden. Pak eerst het volledige zip-bestand uit.
-  pause
-  exit /b 1
+  echo.
+  echo  Eerste start: de officiele Node.js-runtime wordt gedownload van nodejs.org ^(ca. 30 MB^)...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0runtime-ophalen.ps1"
+  if errorlevel 1 (
+    echo.
+    echo  FOUT: de runtime kon niet worden opgehaald. Controleer je internetverbinding en probeer opnieuw.
+    pause
+    exit /b 1
+  )
 )
+
 echo.
 echo  ForexNexus Alpha wordt gestart...
 echo  De app opent zo in je browser: http://127.0.0.1:8737/

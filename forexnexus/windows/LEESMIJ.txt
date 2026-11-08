@@ -5,6 +5,8 @@ ForexNexus Alpha 1.1 voor Windows
    en kies bijvoorbeeld C:\ForexNexus. (Niet starten vanuit de zip zelf!)
 2. Open de uitgepakte map ForexNexus en dubbelklik op "ForexNexus.cmd".
    - Er opent een zwart venster: dat is de engine. Laat het open.
+   - De EERSTE keer downloadt het de officiele Node.js-runtime van nodejs.org
+     (ca. 30 MB, checksum wordt gecontroleerd). Daarna niet meer.
    - Na enkele seconden opent de app in je browser (http://127.0.0.1:8737/).
    - Waarschuwt Windows? Kies "Meer info" > "Toch uitvoeren".
 3. Optioneel: dubbelklik "Snelkoppelingen-maken.cmd" voor een snelkoppeling op

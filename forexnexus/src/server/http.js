@@ -456,7 +456,9 @@ export function createApp({ db, engine, secrets, env = process.env, log = consol
   }
 
   async function handle(req, res) {
-    const url = new URL(req.url, 'http://local');
+    let url;
+    try { url = new URL(String(req.url || '/').replace(/^\/{2,}/, '/'), 'http://local'); }
+    catch { res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }); res.end('Ongeldig verzoek'); return; }
     const path = url.pathname;
     try {
       if (path.startsWith('/api/')) {
